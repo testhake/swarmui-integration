@@ -112,11 +112,32 @@ async function generateImage() {
         const sessionId = await getSessionId();
         const userSettings = await getUserSettings(sessionId);
         let rawInput = userSettings.settings || {};
-        let prompt = imagePrompt;
-        if (settings.append_prompt && rawInput.prompt) {
-            prompt = rawInput.prompt + ', ' + imagePrompt;
+
+        // Filter out UI-specific settings and keep only image generation parameters
+        const imageGenParams = {
+            prompt: rawInput.prompt || '',
+            negativeprompt: rawInput.negativeprompt || '',
+            model: rawInput.model || '',
+            seed: rawInput.seed || '-1',
+            steps: rawInput.steps || '20',
+            cfgscale: rawInput.cfgscale || '3',
+            width: rawInput.width || '1024',
+            height: rawInput.height || '1024',
+            aspectratio: rawInput.aspectratio || '1:1',
+            batchsize: rawInput.batchsize || '1',
+            // Add other relevant parameters if they exist
+            ...(rawInput.loras && { loras: rawInput.loras }),
+            ...(rawInput.controlnetpreviewonly !== undefined && { controlnetpreviewonly: rawInput.controlnetpreviewonly }),
+            ...(rawInput.seamlesstileable && { seamlesstileable: rawInput.seamlesstileable }),
+            ...(rawInput.modelspecificenhancements !== undefined && { modelspecificenhancements: rawInput.modelspecificenhancements }),
+        };
+
+        // Handle prompt combination
+        let finalPrompt = imagePrompt;
+        if (settings.append_prompt && imageGenParams.prompt) {
+            finalPrompt = imageGenParams.prompt + ', ' + imagePrompt;
         }
-        rawInput.prompt = prompt;
+        imageGenParams.prompt = finalPrompt;
 
         // Try direct request first (same as other functions in your script)
         const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
@@ -124,7 +145,7 @@ async function generateImage() {
         const requestBody = {
             session_id: sessionId,
             images: 1,
-            ...rawInput  // Spread rawInput at the same level as required by the API
+            ...imageGenParams  // Use filtered parameters instead of all rawInput
         };
 
         const response = await fetch(apiUrl, {
@@ -190,6 +211,7 @@ async function generateImage() {
         generatingMessageId = null;
     }
 }
+
 
 
 
