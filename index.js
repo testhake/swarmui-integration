@@ -120,20 +120,24 @@ async function generateImage() {
         return;
     }
 
-    // Insert generating message
+    // Insert generating message using proper SillyTavern format
     const generatingMessage = {
         name: context.name2 || 'System',
+        is_user: false,
         is_system: true,
+        send_date: new Date().getTime(),
         mes: 'Generating image...',
-        sendDate: Date.now(),
         extra: {},
     };
+
     chat.push(generatingMessage);
     generatingMessageId = chat.length - 1;
 
-    // Properly update the UI
+    // Use proper SillyTavern event sequence
+    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId, 'extension');
     context.addOneMessage(generatingMessage);
-    context.saveChat();
+    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId, 'extension');
+    await context.saveChat();
 
     try {
         const sessionId = await getSessionId();
@@ -191,23 +195,30 @@ async function generateImage() {
                 imageSrc = `${settings.url}/${imageSrc}`;
             }
 
-            // Replace the generating message with the image message
+            // Create the final image message using proper SillyTavern format
             const imageMessage = {
                 name: context.name2 || 'System',
+                is_user: false,
                 is_system: true,
+                send_date: new Date().getTime(),
                 mes: 'Generated image:',
-                sendDate: Date.now(),
-                extra: { image: imageSrc },
+                extra: {
+                    image: imageSrc,
+                    title: prompt,
+                    generationType: 'SwarmUI',
+                    inline_image: false,
+                    image_swipes: [imageSrc],
+                },
             };
 
             // Replace the generating message in the chat array
             chat[generatingMessageId] = imageMessage;
 
-            // Force UI update by clearing and re-adding messages
-            context.saveChat();
-
-            // Trigger a chat refresh to update the UI properly
-            eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
+            // Use proper SillyTavern event sequence for update
+            await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId, 'extension');
+            context.addOneMessage(imageMessage);
+            await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId, 'extension');
+            await context.saveChat();
 
         } else {
             throw new Error('No images returned from API');
@@ -216,13 +227,13 @@ async function generateImage() {
     } catch (error) {
         console.error('Generation error:', error);
 
-        // Remove the generating message on error
+        // Remove the generating message on error and refresh UI
         if (generatingMessageId !== null && generatingMessageId < chat.length) {
             chat.splice(generatingMessageId, 1);
-            context.saveChat();
+            await context.saveChat();
 
-            // Trigger UI refresh to remove the generating message
-            eventSource.emit(event_types.CHAT_CHANGED, getCurrentChatId());
+            // Force a complete UI refresh
+            await eventSource.emit(event_types.CHAT_CHANGED, getCurrentChatId());
         }
 
         toastr.error('Failed to generate image: ' + error.message);
