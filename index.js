@@ -119,8 +119,9 @@ async function generateImage() {
         }
         rawInput.prompt = prompt;
 
-        // Use HTTP API for generation with zrok bypass
+        // Use HTTP API for generation with zrok bypass and CORS proxy
         const apiUrl = settings.url + '/API/GenerateText2Image?skip_zrok_interstitial=1';
+        const corsProxyUrl = 'https://cors-anywhere.herokuapp.com/' + apiUrl;
 
         const requestBody = {
             session_id: sessionId,
@@ -128,11 +129,13 @@ async function generateImage() {
             ...rawInput  // Spread rawInput at the same level as required by the API
         };
 
-        const response = await fetch(apiUrl, {
+        const response = await fetch(corsProxyUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
+            mode: 'cors', // Explicitly request CORS
+            credentials: 'omit', // Don't send credentials for cross-origin requests
             body: JSON.stringify(requestBody)
         });
 
