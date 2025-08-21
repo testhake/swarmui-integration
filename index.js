@@ -1,5 +1,5 @@
 ﻿// swarmui/index.js
-import { Popper } from '../../../lib.js';
+import { Popper } from '../../../../lib.js';
 import {
     animation_duration,
     appendMediaToMessage,
@@ -8,7 +8,7 @@ import {
     getRequestHeaders,
     substituteParamsExtended,
     getContext
-} from '../../../script.js';
+} from '../../../../script.js';
 
 import {
     doExtrasFetch,
@@ -16,9 +16,9 @@ import {
     getApiUrl,
     renderExtensionTemplateAsync,
     writeExtensionField,
-} from '../../extensions.js';
+} from '../../../extensions.js';
 
-import { debounce, deepMerge, delay } from '../../utils.js';
+import { debounce, deepMerge, delay } from '../../../utils.js';
 
 export { MODULE_NAME };
 const MODULE_NAME = 'swarmui';
