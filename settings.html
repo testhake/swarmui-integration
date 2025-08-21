@@ -1,14 +1,19 @@
 <div id="swarm_settings" class="extension_settings">
     <div class="inline-drawer">
-        <h4>SwarmUI Extension Settings</h4>
-        <label for="swarm_url">SwarmUI Base URL (e.g., http://localhost:7801):</label>
-        <input id="swarm_url" class="text_pole" type="text" value="http://localhost:7801" />
-        <label for="swarm_session_id">Session ID (optional, leave blank to auto-generate):</label>
-        <input id="swarm_session_id" class="text_pole" type="text" placeholder="Auto-generate if blank" />
-        <label for="swarm_llm_prompt">Custom LLM Prompt Template (use {description} for last message):</label>
-        <textarea id="swarm_llm_prompt" class="textarea_compact" rows="4">Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}</textarea>
-        <label for="swarm_append_prompt"><input id="swarm_append_prompt" type="checkbox" checked /> Append generated prompt to current SwarmUI prompt (instead of replacing)</label>
-        <label for="swarm_use_auth"><input id="swarm_use_auth" type="checkbox" /> Use Authentication (requires manual cookie/token setup in browser)</label>
-        <small>Note: For authentication, log in to SwarmUI in your browser first. The extension will rely on browser cookies.</small>
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>SwarmUI Extension Settings</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <label for="swarm_url">SwarmUI Base URL (e.g., http://localhost:7801):</label>
+            <input id="swarm_url" class="text_pole" type="text" value="http://localhost:7801" />
+            <label for="swarm_session_id">Session ID (optional, leave blank to auto-generate):</label>
+            <input id="swarm_session_id" class="text_pole" type="text" placeholder="Auto-generate if blank" />
+            <label for="swarm_llm_prompt">Custom LLM Prompt Template (use {description} for last message):</label>
+            <textarea id="swarm_llm_prompt" class="textarea_compact" rows="4">Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}</textarea>
+            <label for="swarm_append_prompt"><input id="swarm_append_prompt" type="checkbox" checked /> Append generated prompt to current SwarmUI prompt (instead of replacing)</label>
+            <label for="swarm_use_auth"><input id="swarm_use_auth" type="checkbox" /> Use Authentication (requires manual cookie/token setup in browser)</label>
+            <small>Note: For authentication, log in to SwarmUI in your browser first. The extension will rely on browser cookies.</small>
+        </div>
     </div>
 </div>
