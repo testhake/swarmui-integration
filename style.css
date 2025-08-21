@@ -1,45 +1,19 @@
-.swarmui-topbar-btn, .swarmui-composer-btn {
-    display: inline-flex;
-    align-items: center;
-    padding: 6px 10px;
-    border-radius: 6px;
-    background: #2b6cb0;
-    color: #fff;
-    cursor: pointer;
-    margin-left: 6px;
+#swarm_settings {
+    margin-bottom: 1em;
 }
 
-.swarmui-modal {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0,0,0,0.5);
-    z-index: 99999;
-}
-
-    .swarmui-modal .swarmui-panel {
-        background: #fff;
-        padding: 16px;
-        border-radius: 8px;
-        width: 480px;
-        max-width: 95%;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    #swarm_settings label {
+        display: block;
+        margin-top: 0.5em;
     }
 
-.swarmui-settings label {
-    display: block;
-    margin: 8px 0;
+#swarm_generate_button {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
 }
 
-.swarmui-settings input[type=text], .swarmui-settings textarea, .swarmui-settings input[type=number] {
-    width: 100%;
-    box-sizing: border-box;
-}
-
-.swarmui-generated-message img {
-    max-width: 420px;
-    max-height: 420px;
-    border-radius: 8px;
+.swarm-progress {
+    color: gray;
+    font-style: italic;
 }

@@ -1,63 +1,191 @@
-﻿// The main script for the extension
-// The following are examples of some basic extension functionality
+﻿import { eventSource, event_types, saveSettingsDebounced, getRequestHeaders, substituteParams, getCurrentChatId } from '../../../../script.js';
+import { getContext, extension_settings, renderExtensionTemplateAsync } from '../../../extensions.js';
+import { generateQuietPrompt } from '../../../../script.js';  // Assuming this exists for quiet LLM generation
+import { debounce_timeout } from '../../../constants.js';
 
-//You'll likely need to import extension_settings, getContext, and loadExtensionSettings from extensions.js
-import { extension_settings, getContext, loadExtensionSettings } from "../../../extensions.js";
+const MODULE_NAME = 'swarmui-integration';
+let settings = {};
+let generatingMessageId = null;
 
-//You'll likely need to import some other functions from the main script
-import { saveSettingsDebounced } from "../../../../script.js";
-
-// Keep track of where your extension is located, name should match repo name
-const extensionName = "swarmui-integration";
-const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
-const extensionSettings = extension_settings[extensionName];
-const defaultSettings = {};
-
-
-
-// Loads the extension settings if they exist, otherwise initializes them to the defaults.
 async function loadSettings() {
-    //Create the settings if they don't exist
-    extension_settings[extensionName] = extension_settings[extensionName] || {};
-    if (Object.keys(extension_settings[extensionName]).length === 0) {
-        Object.assign(extension_settings[extensionName], defaultSettings);
+    if (!extension_settings[MODULE_NAME]) {
+        extension_settings[MODULE_NAME] = {};
     }
+    settings = extension_settings[MODULE_NAME];
 
-    // Updating settings in the UI
-    $("#example_setting").prop("checked", extension_settings[extensionName].example_setting).trigger("input");
+    $('#swarm_url').val(settings.url || 'http://localhost:7801').trigger('input');
+    $('#swarm_session_id').val(settings.session_id || '').trigger('input');
+    $('#swarm_llm_prompt').val(settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}').trigger('input');
+    $('#swarm_append_prompt').prop('checked', !!settings.append_prompt).trigger('input');
+    $('#swarm_use_auth').prop('checked', !!settings.use_auth).trigger('input');
 }
 
-// This function is called when the extension settings are changed in the UI
-function onExampleInput(event) {
-    const value = Boolean($(event.target).prop("checked"));
-    extension_settings[extensionName].example_setting = value;
+function onInput(event) {
+    const id = event.target.id.replace('swarm_', '');
+    if (id === 'append_prompt' || id === 'use_auth') {
+        settings[id] = $(event.target).prop('checked');
+    } else {
+        settings[id] = $(event.target).val();
+    }
+    extension_settings[MODULE_NAME] = settings;
     saveSettingsDebounced();
 }
 
-// This function is called when the button is clicked
-function onButtonClick() {
-    // You can do whatever you want here
-    // Let's make a popup appear with the checked setting
-    toastr.info(
-        `The checkbox is ${extension_settings[extensionName].example_setting ? "checked" : "not checked"}`,
-        "A popup appeared because you clicked the button!"
-    );
+async function getSessionId() {
+    if (settings.session_id) {
+        return settings.session_id;
+    }
+
+    const url = `${settings.url}/API/GetNewSession`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getRequestHeaders() },
+        body: JSON.stringify({}),
+        credentials: settings.use_auth ? 'include' : 'omit',
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to get session ID');
+    }
+
+    const data = await response.json();
+    return data.session_id;
 }
 
-// This function is called when the extension is loaded
+async function getUserSettings(sessionId) {
+    const url = `${settings.url}/API/GetUserSettings`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getRequestHeaders() },
+        body: JSON.stringify({ session_id: sessionId }),
+        credentials: settings.use_auth ? 'include' : 'omit',
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to get user settings');
+    }
+
+    return await response.json();
+}
+
+async function generateImage() {
+    const context = getContext();
+    const chat = context.chat;
+    if (chat.length === 0) {
+        toastr.error('No chat messages to base image on.');
+        return;
+    }
+
+    // Get last message as description
+    const lastMessage = chat[chat.length - 1].mes;
+    const llmPrompt = substituteParams(settings.llm_prompt).replace('{description}', lastMessage);
+
+    // Generate image prompt from LLM
+    let imagePrompt;
+    try {
+        imagePrompt = await generateQuietPrompt(llmPrompt);
+    } catch (error) {
+        toastr.error('Failed to generate image prompt from LLM.');
+        return;
+    }
+
+    // Insert generating message
+    const generatingMessage = {
+        name: context.name2 || 'System',
+        is_system: true,
+        mes: 'Generating image... (0%)',
+        sendDate: Date.now(),
+        extra: {},
+    };
+    chat.push(generatingMessage);
+    generatingMessageId = chat.length - 1;
+    context.addOneMessage(generatingMessage);
+    context.saveChat();
+
+    try {
+        const sessionId = await getSessionId();
+        const userSettings = await getUserSettings(sessionId);
+        let rawInput = userSettings.settings || {};
+
+        let prompt = imagePrompt;
+        if (settings.append_prompt && rawInput.prompt) {
+            prompt = rawInput.prompt + ', ' + imagePrompt;
+        }
+        rawInput.prompt = prompt;
+
+        // Use WebSocket for generation with updates
+        const wsUrl = settings.url.replace(/^http/, 'ws') + '/API/GenerateText2ImageWS';
+        const ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+            ws.send(JSON.stringify({
+                session_id: sessionId,
+                images: 1,
+                rawInput: rawInput,
+            }));
+        };
+
+        ws.onmessage = async (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.gen_progress) {
+                const overallPercent = Math.round(data.gen_progress.overall_percent * 100);
+                chat[generatingMessageId].mes = `Generating image... (${overallPercent}%)`;
+                if (data.gen_progress.preview) {
+                    chat[generatingMessageId].extra.image = data.gen_progress.preview;
+                }
+                context.addOneMessage(chat[generatingMessageId]);
+            } else if (data.image) {
+                let imageSrc = data.image.image;
+                if (!imageSrc.startsWith('data:')) {
+                    imageSrc = `${settings.url}/${imageSrc}`;
+                }
+                // Add final image in a new message
+                const imageMessage = {
+                    name: context.name2 || 'System',
+                    is_system: true,
+                    mes: 'Generated image:',
+                    sendDate: Date.now(),
+                    extra: { image: imageSrc },
+                };
+                chat.push(imageMessage);
+                context.addOneMessage(imageMessage);
+                context.saveChat();
+
+                // Update generating message to done
+                chat[generatingMessageId].mes = 'Image generation complete.';
+                context.addOneMessage(chat[generatingMessageId]);
+                ws.close();
+            }
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            chat[generatingMessageId].mes = 'Error generating image.';
+            context.addOneMessage(chat[generatingMessageId]);
+        };
+
+        ws.onclose = () => {
+            generatingMessageId = null;
+        };
+    } catch (error) {
+        console.error('Generation error:', error);
+        chat[generatingMessageId].mes = 'Failed to generate image.';
+        context.addOneMessage(chat[generatingMessageId]);
+        generatingMessageId = null;
+    }
+}
+
 jQuery(async () => {
-    // This is an example of loading HTML from a file
-    const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
+    const settingsHtml = await renderExtensionTemplateAsync(MODULE_NAME, 'settings');
+    $('#extensions_settings').append(settingsHtml);
 
-    // Append settingsHtml to extensions_settings
-    // extension_settings and extensions_settings2 are the left and right columns of the settings menu
-    // Left should be extensions that deal with system functions and right should be visual/UI related 
-    $("#extensions_settings").append(settingsHtml);
+    $('#swarm_settings input, #swarm_settings textarea').on('input', onInput);
 
-    // These are examples of listening for events
-    $("#my_button").on("click", onButtonClick);
-    $("#example_setting").on("input", onExampleInput);
+    const buttonHtml = await renderExtensionTemplateAsync(MODULE_NAME, 'button');
+    $('#send_but').before(buttonHtml);  // Add button before send button
 
-    // Load settings when starting things up (if you have any)
-    loadSettings();
+    $('#swarm_generate_button').on('click', generateImage);
+
+    await loadSettings();
 });
