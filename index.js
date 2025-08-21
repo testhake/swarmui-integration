@@ -177,13 +177,13 @@ async function generateImage() {
 }
 
 jQuery(async () => {
-    const settingsHtml = await renderExtensionTemplateAsync(MODULE_NAME, 'settings');
+    const settingsHtml = await renderExtensionTemplateAsync(MODULE_NAME +'third-party/', 'settings');
     
     $('#extensions_settings').append(settingsHtml);
 
     $('#swarm_settings input, #swarm_settings textarea').on('input', onInput);
 
-    const buttonHtml = await renderExtensionTemplateAsync(MODULE_NAME, 'button');
+    const buttonHtml = await renderExtensionTemplateAsync(MODULE_NAME + 'third-party/', 'button');
     $('#send_but').before(buttonHtml);  // Add button before send button
 
     $('#swarm_generate_button').on('click', generateImage);
