@@ -21,7 +21,7 @@ import {
 import { debounce, deepMerge, delay } from '../../../utils.js';
 
 export { MODULE_NAME };
-const MODULE_NAME = 'swarmui';
+const MODULE_NAME = 'swarmui-integration';
 
 const defaultSettings = {
     swarm_base_url: 'http://127.0.0.1:8000',
