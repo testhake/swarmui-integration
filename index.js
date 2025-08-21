@@ -119,8 +119,9 @@ async function generateImage() {
         }
         rawInput.prompt = prompt;
 
-        // Use HTTP API for generation with zrok bypass
-        const apiUrl = settings.url + '/API/GenerateText2Image?skip_zrok_interstitial=1';
+        // Use HTTP API for generation with zrok bypass via CORS proxy
+        const targetUrl = encodeURIComponent(settings.url + '/API/GenerateText2Image?skip_zrok_interstitial=1');
+        const apiUrl = `https://corsproxy.io/?${targetUrl}`;
 
         const requestBody = {
             session_id: sessionId,
