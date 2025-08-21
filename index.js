@@ -4,6 +4,7 @@ import { generateQuietPrompt } from '../../../../script.js';  // Assuming this e
 import { debounce_timeout } from '../../../constants.js';
 
 const MODULE_NAME = 'swarmui-integration';
+const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
 let settings = {};
 let generatingMessageId = null;
 
@@ -176,11 +177,14 @@ async function generateImage() {
     }
 }
 
-$(document).ready(async function () {
+jQuery(async () => {
+    const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
+    
     $('#extensions_settings').append(settingsHtml);
 
     $('#swarm_settings input, #swarm_settings textarea').on('input', onInput);
 
+    const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
     $('#send_but').before(buttonHtml);  // Add button before send button
 
     $('#swarm_generate_button').on('click', generateImage);
