@@ -6,8 +6,7 @@ import {
     generateQuietPrompt,
     getCurrentChatId,
     getRequestHeaders,
-    substituteParamsExtended,
-    getContext
+    substituteParamsExtended
 } from '../../../../script.js';
 
 import {
@@ -16,6 +15,7 @@ import {
     getApiUrl,
     renderExtensionTemplateAsync,
     writeExtensionField,
+    getContext
 } from '../../../extensions.js';
 
 import { debounce, deepMerge, delay } from '../../../utils.js';
