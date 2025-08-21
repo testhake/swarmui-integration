@@ -1,205 +1,237 @@
-import {
-    getVisibleMessages,
-    getThumbnailUrl,
-    Generate,
-    getCharInfo,
-} from '../../../../script.js';
-import { extension_settings, getContext, loadExtensionSettings } from '../../../extensions.js';
+﻿// SwarmUI extension (self-contained runtime script) -- safe, no top-level imports
+(function () {
+    const MODULE = 'swarmui';
+    const DEFAULTS = {
+        swarm_base_url: 'http://127.0.0.1:8000',
+        swarm_use_ws: true,
+        swarm_auth_header: '',
+        swarm_images: 1,
+        swarm_llm_prompt_template: 'Create a detailed image prompt describing: {{last_message}}',
+        swarm_append_swarm_prompt: true
+    };
 
-const extensionName = 'swarmui-integration';
-let settings = {};
-let isGenerating = false;
-let swarmSocket = null;
-
-// Function to create and inject the SwarmUI button
-function addSwarmButton() {
-    // Ensure the button doesn't already exist
-    if ($('#swarm-button').length > 0) return;
-
-    const buttonHtml = `
-        <div id="swarm-button" class="fa-solid fa-palette" title="Generate image with SwarmUI"></div>
-    `;
-    $('#send_form').append(buttonHtml);
-    $('#swarm-button').on('click', onSwarmButtonClick);
-}
-
-// Shows a message in the chat, returns the message element
-function showMessage(msg, id) {
-    const messageId = `swarm-message-${id}`;
-
-    // Using a more robust way to add the message to the chat
-    const lastMessage = getVisibleMessages().last();
-    const chat = lastMessage.parent();
-
-    const html = `
-        <div class="mes" mes-id="${messageId}" id="${messageId}" style="display:none;">
-            <div class="message_wrapper">
-                <div class="mes_block">
-                    <div class="mes_avatar" style="background-image: url('${getThumbnailUrl('sys')}')"></div>
-                    <div class="mes_content">
-                        <div class="name">SwarmUI</div>
-                        <div class="text">${msg}</div>
-                    </div>
-                </div>
-            </div>
-        </div>`;
-
-    chat.append(html);
-    const newMessage = $(`#${messageId}`);
-    newMessage.fadeIn();
-    window.scrollTo(0, document.body.scrollHeight);
-
-    return newMessage;
-}
-
-// Updates the content of a message created by showMessage
-function updateMessage(id, newContent) {
-    const messageEl = $(`#swarm-message-${id} .text`);
-    if (messageEl) {
-        messageEl.html(newContent);
-    }
-}
-
-// Handles the main generation flow
-async function onSwarmButtonClick() {
-    if (isGenerating) return;
-
-    isGenerating = true;
-    $('#swarm-button').addClass('disabled').attr('title', 'Generation in progress...');
-
-    const context = getContext();
-    const lastUserMessage = context.chat.slice().reverse().find(msg => msg.is_user)?.mes || '';
-    const charName = getCharInfo(context.characterId).name;
-
-    try {
-        // 1. Generate the image prompt using the LLM
-        const messageId = Date.now();
-        showMessage('Asking LLM to create an image prompt...', messageId);
-
-        const llmPrompt = settings.prompt.replace(/{{prompt}}/g, lastUserMessage).replace(/{{char}}/g, charName);
-        const imagePrompt = await Generate(llmPrompt, false, true, 1.0, 100);
-
-        if (!imagePrompt || imagePrompt.trim() === '') {
-            throw new Error('LLM returned an empty prompt.');
-        }
-
-        const cleanImagePrompt = imagePrompt.trim().replace(/^"|"$/g, ''); // Clean up quotes from LLM output
-        updateMessage(messageId, `<b>LLM Prompt:</b><br><em>${cleanImagePrompt}</em><br><br>Connecting to SwarmUI...`);
-
-        // 2. Get current settings from SwarmUI
-        let userSettings;
+    function safeParse(s) { try { return JSON.parse(s); } catch (e) { return null; } }
+    function loadSettings() {
         try {
-            const response = await fetch(`${settings.swarmUrl}/API/GetUserSettings`);
-            if (!response.ok) {
-                throw new Error(`Failed to get SwarmUI settings. Status: ${response.status}`);
-            }
-            userSettings = (await response.json()).settings;
-        } catch (error) {
-            throw new Error(`Could not connect to SwarmUI at ${settings.swarmUrl}. Is it running and accessible?`);
-        }
-
-        // 3. Construct the payload
-        const payload = { ...userSettings };
-        payload.images = Number(settings.numImages);
-
-        const basePrompt = payload.T2I_prompt || '';
-
-        if (settings.appendPrompt && basePrompt) {
-            payload.prompt = `${basePrompt}, ${cleanImagePrompt}`;
-        } else {
-            payload.prompt = cleanImagePrompt;
-        }
-
-        const finalPayload = {};
-        for (const [key, value] of Object.entries(payload)) {
-            const newKey = key.startsWith('T2I_') ? key.substring(4) : key;
-            finalPayload[newKey] = value;
-        }
-
-        // 4. Generate image via WebSocket
-        generateImageWithWebSocket(finalPayload, messageId);
-
-    } catch (error) {
-        console.error('[SwarmUI Extension]', error);
-        showMessage(`<b>Error:</b> ${error.message}`, `error-${Date.now()}`);
-        isGenerating = false;
-        $('#swarm-button').removeClass('disabled').attr('title', 'Generate image with SwarmUI');
+            if (window.extension_settings && window.extension_settings[MODULE]) return Object.assign({}, DEFAULTS, window.extension_settings[MODULE]);
+            // fallback to localStorage
+            const stored = localStorage.getItem('swarmui_settings');
+            if (stored) return Object.assign({}, DEFAULTS, safeParse(stored) || {});
+        } catch (e) { }
+        return Object.assign({}, DEFAULTS);
     }
-}
-
-// Handles the WebSocket connection and message events
-function generateImageWithWebSocket(payload, messageId) {
-    const wsUrl = settings.swarmUrl.replace(/^http/, 'ws') + '/API/GenerateText2ImageWS';
-    swarmSocket = new WebSocket(wsUrl);
-
-    swarmSocket.onopen = () => {
-        console.log('[SwarmUI Extension] WebSocket connected.');
-        updateMessage(messageId, `<b>LLM Prompt:</b><br><em>${payload.prompt}</em><br><br>Generating image...`);
-        swarmSocket.send(JSON.stringify(payload));
-    };
-
-    swarmSocket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-
-        if (data.gen_progress) {
-            const progressPercent = (data.gen_progress.current_percent * 100).toFixed(0);
-            let progressHtml = `<b>LLM Prompt:</b><br><em>${payload.prompt}</em><br><br>Generating image... (${progressPercent}%)`;
-
-            if (data.gen_progress.preview) {
-                progressHtml += `<br><img src="${data.gen_progress.preview}" class="swarm-loading-image">`;
-            }
-            updateMessage(messageId, progressHtml);
-        }
-
-        if (data.image) {
-            const imageUrl = data.image.image.startsWith('data:') ? data.image.image : `${settings.swarmUrl}/${data.image.image}`;
-            const imageHtml = `
-                <b>LLM Prompt:</b><br><em>${payload.prompt}</em><br><br>
-                <a href="${imageUrl}" target="_blank" rel="noopener noreferrer">
-                    <img src="${imageUrl}" alt="Generated by SwarmUI">
-                </a>`;
-            updateMessage(messageId, imageHtml);
-
-            swarmSocket.close();
-        }
-
-        if (data.error) {
-            throw new Error(data.error);
-        }
-    };
-
-    swarmSocket.onerror = (error) => {
-        console.error('[SwarmUI Extension] WebSocket Error:', error);
-        updateMessage(messageId, `<b>Error:</b> WebSocket connection failed. Check the browser console for details.`);
-        isGenerating = false;
-        $('#swarm-button').removeClass('disabled').attr('title', 'Generate image with SwarmUI');
-    };
-
-    swarmSocket.onclose = () => {
-        console.log('[SwarmUI Extension] WebSocket disconnected.');
-        isGenerating = false;
-        $('#swarm-button').removeClass('disabled').attr('title', 'Generate image with SwarmUI');
-        swarmSocket = null;
-    };
-}
-
-
-// Load settings and initialize the extension
-jQuery(async () => {
-    // Wait for SillyTavern's main UI to be ready
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    try {
-        settings = extension_settings[extensionName] ?? {};
-        if (Object.keys(settings).length === 0) {
-            await loadExtensionSettings(extensionName);
-            settings = extension_settings[extensionName];
-        }
-
-        if (settings.showButton) {
-            addSwarmButton();
-        }
-    } catch (error) {
-        console.error(`[${extensionName}] Failed to initialize:`, error);
+    function saveSettings(s) {
+        try {
+            if (typeof writeExtensionField === 'function') { writeExtensionField(MODULE, JSON.stringify(s)); }
+            localStorage.setItem('swarmui_settings', JSON.stringify(s));
+        } catch (e) { try { localStorage.setItem('swarmui_settings', JSON.stringify(s)); } catch (e) { } }
     }
-});
+
+    function createTopbarButton() {
+        try {
+            const container = document.querySelector('.topbar-actions, .app-actions, .nav-actions, .topbar-right');
+            const btn = document.createElement('button');
+            btn.className = 'swarmui-topbar-btn';
+            btn.innerText = 'SwarmUI';
+            btn.title = 'Open SwarmUI settings';
+            btn.onclick = openSettingsModal;
+            if (container) container.appendChild(btn);
+            else document.body.appendChild(btn);
+        } catch (e) { console.warn('swarmui: could not create topbar button', e); }
+    }
+
+    function createComposerButton() {
+        try {
+            const composerContainers = [document.querySelector('.composer .actions'), document.querySelector('.composer'), document.querySelector('.editor-controls'), document.querySelector('.input-actions'), document.querySelector('.send-area'), document.querySelector('.messages')];
+            const container = composerContainers.find(c => c && c.appendChild);
+            const btn = document.createElement('button');
+            btn.className = 'swarmui-composer-btn';
+            btn.innerText = 'Generate Image';
+            btn.title = 'Generate an image using SwarmUI and the current LLM prompt';
+            btn.onclick = runGenerateFlow;
+            if (container) container.appendChild(btn);
+            else document.body.appendChild(btn);
+        } catch (e) { console.warn('swarmui: could not create composer button', e); }
+    }
+
+    function openSettingsModal() {
+        const s = loadSettings();
+        // modal DOM
+        const overlay = document.createElement('div'); overlay.className = 'swarmui-modal';
+        const panel = document.createElement('div'); panel.className = 'swarmui-panel';
+        panel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><h3 style="margin:0">SwarmUI Settings</h3><button id="swarmui-close">✕</button></div>
+      <div class="swarmui-settings">
+        <label>Swarm Base URL<br/><input id="swarm_base_url_in" type="text" value="${escapeHtml(s.swarm_base_url)}"/></label>
+        <label>Use WebSocket<br/><input id="swarm_use_ws_in" type="checkbox" ${s.swarm_use_ws ? 'checked' : ''}/></label>
+        <label>Auth Header (optional)<br/><input id="swarm_auth_header_in" type="text" value="${escapeHtml(s.swarm_auth_header)}"/></label>
+        <label>Images per request<br/><input id="swarm_images_in" type="number" min="1" max="10" value="${escapeHtml(s.swarm_images)}"/></label>
+        <label>LLM prompt template<br/><textarea id="swarm_llm_prompt_template_in">${escapeHtml(s.swarm_llm_prompt_template)}</textarea></label>
+        <label>Append Swarm prompt (best-effort)<br/><input id="swarm_append_swarm_prompt_in" type="checkbox" ${s.swarm_append_swarm_prompt ? 'checked' : ''}/></label>
+        <div style="margin-top:8px;"><button id="swarm_save_btn">Save</button> <button id="swarm_cancel_btn">Cancel</button></div>
+      </div>
+    `;
+        overlay.appendChild(panel);
+        document.body.appendChild(overlay);
+        document.getElementById('swarmui-close').onclick = closeModal;
+        document.getElementById('swarm_cancel_btn').onclick = closeModal;
+        document.getElementById('swarm_save_btn').onclick = function () {
+            const newS = {
+                swarm_base_url: document.getElementById('swarm_base_url_in').value.trim(),
+                swarm_use_ws: !!document.getElementById('swarm_use_ws_in').checked,
+                swarm_auth_header: document.getElementById('swarm_auth_header_in').value.trim(),
+                swarm_images: parseInt(document.getElementById('swarm_images_in').value, 10) || 1,
+                swarm_llm_prompt_template: document.getElementById('swarm_llm_prompt_template_in').value,
+                swarm_append_swarm_prompt: !!document.getElementById('swarm_append_swarm_prompt_in').checked
+            };
+            saveSettings(newS);
+            closeModal();
+            alert('Saved SwarmUI settings');
+        };
+        function closeModal() { try { overlay.remove(); } catch (e) { } }
+    }
+
+    function escapeHtml(s) { if (s == null) return ''; return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+    // Utilities for Swarm interaction
+    function joinUrl(base, path) { if (!base) return path; return base.replace(/\/$/, '') + '/' + path.replace(/^\//, ''); }
+    async function fetchImageDataUrl(baseUrl, imgPath, authHeader) { if (!imgPath) return null; if (imgPath.startsWith('data:')) return imgPath; try { const url = joinUrl(baseUrl, imgPath); const headers = {}; if (authHeader) headers['Authorization'] = authHeader; const r = await fetch(url, { headers }); if (!r.ok) return null; const blob = await r.blob(); return await new Promise(res => { const reader = new FileReader(); reader.onload = () => res(reader.result); reader.onerror = () => res(null); reader.readAsDataURL(blob); }); } catch (e) { console.warn('fetchImageDataUrl', e); return null; } }
+
+    async function generateWithSwarmHTTP(baseUrl, authHeader, payload, onImage) { try { const url = joinUrl(baseUrl, '/API/GenerateText2Image'); const headers = { 'Content-Type': 'application/json' }; if (authHeader) headers['Authorization'] = authHeader; const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) }); if (!r.ok) throw new Error('HTTP error ' + r.status); const j = await r.json(); if (j.images && Array.isArray(j.images)) { for (const p of j.images) { const dataUrl = await fetchImageDataUrl(baseUrl, p, authHeader); await onImage(dataUrl, null); } } } catch (e) { throw e; } }
+
+    // WS-based generator with preview callbacks (best-effort)
+    async function generateWithSwarmWS(baseUrl, authHeader, payload, onPreview, onImage, onStatus) {
+        return new Promise((resolve, reject) => {
+            try {
+                const wsBase = baseUrl.replace(/^https?:\/\//, (m) => m === 'http://' ? 'ws://' : 'wss://');
+                const wsUrl = joinUrl(wsBase, '/API/GenerateText2ImageWS');
+                const ws = new WebSocket(wsUrl);
+                ws.onopen = () => { ws.send(JSON.stringify({ images: payload.images || 1, rawInput: payload.rawInput })); };
+                ws.onmessage = async (ev) => {
+                    let data = null;
+                    try { data = JSON.parse(ev.data); } catch (e) { console.warn('swarm ws parse', e); }
+                    if (!data) return;
+                    if (data.gen_progress && data.gen_progress.preview) { onPreview && onPreview(data.gen_progress.preview, data.gen_progress); }
+                    if (data.image && data.image.image) { const p = data.image.image; const d = await fetchImageDataUrl(baseUrl, p, authHeader); onImage && onImage(d, data.image.metadata); }
+                    if (data.status) onStatus && onStatus(data.status);
+                };
+                ws.onerror = (ev) => { console.warn('swarm ws err', ev); reject(ev); };
+                ws.onclose = () => { resolve(); };
+            } catch (e) { reject(e); }
+        });
+    }
+
+    // helper to append an image to the chat UI (DOM fallback)
+    function insertImageIntoChat(dataUrl, caption) {
+        try {
+            // try the official helper first
+            if (typeof appendMediaToMessage === 'function') {
+                appendMediaToMessage(dataUrl, { text: caption || 'Generated by SwarmUI' });
+                return;
+            }
+        } catch (e) { console.warn('appendMediaToMessage failed', e); }
+        // DOM fallback: append an image block to visible messages container
+        const candidates = [document.querySelector('.messages'), document.querySelector('.chat-messages'), document.querySelector('.message-list'), document.querySelector('.conversation'), document.querySelector('.messages-list')];
+        const container = candidates.find(c => c && c.appendChild);
+        const wrapper = document.createElement('div'); wrapper.className = 'swarmui-generated-message';
+        wrapper.innerHTML = `<div style="margin:8px 0;">${caption ? '<div>' + escapeHtml(caption) + '</div>' : ''}<img src="${dataUrl}"/></div>`;
+        if (container) container.appendChild(wrapper);
+        else document.body.appendChild(wrapper);
+    }
+
+    // Try to obtain a 'last message' string (best-effort)
+    function getLastMessageText() {
+        try {
+            // prefer built-in context helper if present
+            if (typeof getContext === 'function') {
+                try { const ctx = getContext(); if (ctx && ctx.last_message_text) return ctx.last_message_text; } catch (e) { }
+            }
+            // DOM fallbacks: look for common message selectors
+            const selectors = ['.message .content', '.message .text', '.message .message-text', '.chat-message .text', '.message-body .text', '.message:last-child .text', '.messages .message:last-child .text'];
+            for (const sel of selectors) { const el = document.querySelector(sel); if (el && el.innerText && el.innerText.trim()) return el.innerText.trim(); }
+        } catch (e) { console.warn('getLastMessageText', e); }
+        return '';
+    }
+
+    async function runGenerateFlow() {
+        const s = loadSettings();
+        if (!s.swarm_base_url) { alert('Set Swarm base URL in settings first.'); openSettingsModal(); return; }
+        // Build LLM prompt template
+        const promptTemplate = s.swarm_llm_prompt_template || DEFAULTS.swarm_llm_prompt_template;
+        const last = getLastMessageText();
+        const promptToSend = promptTemplate.replace(/\{\{last_message\}\}/g, last || '');
+
+        let llmResult = '';
+        try {
+            if (typeof generateQuietPrompt === 'function') {
+                const gen = await generateQuietPrompt({ prompt: promptToSend, quiet: true });
+                if (!gen) llmResult = '';
+                else if (typeof gen === 'string') llmResult = gen;
+                else if (gen.text) llmResult = gen.text;
+                else if (gen.result) llmResult = gen.result;
+                else if (Array.isArray(gen)) llmResult = gen.join('\n');
+                else llmResult = JSON.stringify(gen);
+            } else {
+                // If generateQuietPrompt isn't available, attempt to use a fallback: the LLM isn't accessible
+                alert('generateQuietPrompt not available in this SillyTavern build. The extension needs ST runtime support to auto-generate prompts.');
+                return;
+            }
+        } catch (e) { console.warn('LLM generation failed', e); alert('LLM prompt generation failed: ' + (e.message || e)); return; }
+
+        // Try to fetch Swarm user settings (best-effort)
+        let swarmUserSettings = null;
+        try {
+            const url = joinUrl(s.swarm_base_url, '/API/GetUserSettings');
+            const headers = { 'Content-Type': 'application/json' };
+            if (s.swarm_auth_header) headers['Authorization'] = s.swarm_auth_header;
+            const r = await fetch(url, { method: 'GET', headers });
+            if (r.ok) swarmUserSettings = await r.json();
+        } catch (e) { console.warn('GetUserSettings failed', e); }
+
+        // try to pull a current swarm prompt
+        let swarmCurrentPrompt = '';
+        if (swarmUserSettings && swarmUserSettings.settings) {
+            const sset = swarmUserSettings.settings;
+            const keys = ['prompt', 't2i_prompt', 'current_prompt', 'last_prompt', 'text_prompt'];
+            for (const k of keys) if (sset[k]) { swarmCurrentPrompt = sset[k]; break; }
+        }
+
+        // final prompt
+        let finalPrompt = llmResult;
+        if (s.swarm_append_swarm_prompt && swarmCurrentPrompt) finalPrompt = (swarmCurrentPrompt + ' ' + llmResult).trim();
+
+        // Build minimal rawInput
+        const rawInput = Object.assign({}, {
+            prompt: finalPrompt,
+            model: (swarmUserSettings && swarmUserSettings.settings && swarmUserSettings.settings.model) || undefined,
+            steps: (swarmUserSettings && swarmUserSettings.settings && parseInt(swarmUserSettings.settings.steps, 10)) || undefined,
+            width: (swarmUserSettings && swarmUserSettings.settings && parseInt(swarmUserSettings.settings.width, 10)) || undefined,
+            height: (swarmUserSettings && swarmUserSettings.settings && parseInt(swarmUserSettings.settings.height, 10)) || undefined
+        });
+
+        const payload = { images: s.swarm_images || 1, rawInput };
+
+        // status feedback
+        try { insertImageIntoChat('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'SwarmUI: generation started (placeholder)'); } catch (e) { }
+
+        try {
+            if (s.swarm_use_ws) {
+                await generateWithSwarmWS(s.swarm_base_url, s.swarm_auth_header, payload,
+                    (previewDataUrl, progress) => { if (previewDataUrl) insertImageIntoChat(previewDataUrl, 'Swarm Preview'); },
+                    (imgDataUrl, metadata) => { if (imgDataUrl) insertImageIntoChat(imgDataUrl, 'Swarm Image'); },
+                    (status) => { console.log('Swarm status', status); }
+                );
+            } else {
+                await generateWithSwarmHTTP(s.swarm_base_url, s.swarm_auth_header, payload, async (imgDataUrl, metadata) => { if (imgDataUrl) insertImageIntoChat(imgDataUrl, 'Swarm Image'); });
+            }
+        } catch (e) { console.warn('Swarm generation failed', e); alert('Swarm generation failed: ' + (e.message || e)); }
+    }
+
+    // initialize
+    function init() {
+        try { createTopbarButton(); } catch (e) { }
+        try { createComposerButton(); } catch (e) { }
+    }
+    // Run after a short delay to let ST finish initial DOM rendering
+    setTimeout(init, 800);
+})();
