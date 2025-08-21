@@ -118,9 +118,8 @@ async function generateImage() {
         }
         rawInput.prompt = prompt;
 
-        // Use HTTP API for generation with zrok bypass via CORS proxy
-        const targetUrl = settings.url + '/API/GenerateText2Image?skip_zrok_interstitial=1';
-        const apiUrl = `https://api.allorigins.win/raw?url=${targetUrl}`;
+        // Try direct request first (same as other functions in your script)
+        const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
 
         const requestBody = {
             session_id: sessionId,
@@ -133,8 +132,8 @@ async function generateImage() {
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
+                'skip_zrok_interstitial': '1', // Also try as header like your other functions
             },
-            mode: 'cors',
             body: JSON.stringify(requestBody)
         });
 
@@ -191,6 +190,7 @@ async function generateImage() {
         generatingMessageId = null;
     }
 }
+
 
 
 
