@@ -95,13 +95,42 @@ async function getSavedT2IParams(sessionId) {
 
 /** Safely remove the "Generating image..." slice and force the chat UI to refresh. */
 async function removeGeneratingSlice(context) {
-    if (generatingMessageId === null) return;
-    // Remove from the in-memory chat
-    context.chat.splice(generatingMessageId, 1);
-    // Force a UI refresh so the deleted slice vanishes visually
-    await eventSource.emit(event_types.CHAT_CHANGED);
-    await context.saveChat();
-    generatingMessageId = null;
+    try {
+        if (generatingMessageId === null) return;
+
+        // Guard: ensure index in range
+        if (Array.isArray(context.chat) && generatingMessageId >= 0 && generatingMessageId < context.chat.length) {
+            context.chat.splice(generatingMessageId, 1);
+        }
+
+        // Persist first (so storage is consistent)
+        await context.saveChat();
+
+        // Tell ST the chat changed — good chance this will re-render properly
+        try { await eventSource.emit(event_types.CHAT_CHANGED); } catch (e) { console.warn('CHAT_CHANGED emit failed', e); }
+
+        // Extra fallback: attempt direct DOM removal. Adjust selectors if your UI uses different attributes.
+        try {
+            // Many SillyTavern instances render messages with a data-index or data-id attribute.
+            // Try a few common patterns — if your build uses a different DOM structure, adjust these selectors.
+            const selectors = [
+                `.message[data-index="${generatingMessageId}"]`,
+                `#message-${generatingMessageId}`,
+                `.chat-message[data-index="${generatingMessageId}"]`
+            ];
+            for (const sel of selectors) {
+                const el = document.querySelector(sel);
+                if (el && el.parentNode) {
+                    el.parentNode.removeChild(el);
+                }
+            }
+        } catch (domErr) {
+            console.warn('DOM cleanup fallback failed', domErr);
+        }
+
+    } finally {
+        generatingMessageId = null;
+    }
 }
 
 async function generateImage() {
