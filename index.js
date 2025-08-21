@@ -5,6 +5,7 @@ import { debounce_timeout } from '../../../constants.js';
 
 const MODULE_NAME = 'swarmui-integration';
 const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
+
 let settings = {};
 let generatingMessageId = null;
 
@@ -13,7 +14,6 @@ async function loadSettings() {
         extension_settings[MODULE_NAME] = {};
     }
     settings = extension_settings[MODULE_NAME];
-
     $('#swarm_url').val(settings.url || 'http://localhost:7801').trigger('input');
     $('#swarm_session_id').val(settings.session_id || '').trigger('input');
     $('#swarm_llm_prompt').val(settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}').trigger('input');
@@ -34,7 +34,6 @@ function onInput(event) {
 
 async function getSessionId() {
     if (settings.session_id) return settings.session_id;
-
     const url = `${settings.url}/API/GetNewSession`;
     const response = await fetch(url, {
         method: 'POST',
@@ -46,16 +45,14 @@ async function getSessionId() {
         body: JSON.stringify({}),
         credentials: settings.use_auth ? 'include' : 'omit',
     });
-
     if (!response.ok) throw new Error('Failed to get session ID');
-
     const data = await response.json();
     return data.session_id;
 }
 
 /**
  * SwarmUI: Get the last saved T2I params for this user/session.
- * Handles the nested shape: { rawInput: { rawInput: {...}, _saved_at: "..." } }
+ * Handles the nested shape: { rawInput: { rawInput: {...}, *saved*at: "..." } }
  */
 async function getSavedT2IParams(sessionId) {
     const url = `${settings.url}/API/GetSavedT2IParams?skip_zrok_interstitial=1`;
@@ -70,72 +67,60 @@ async function getSavedT2IParams(sessionId) {
         body: JSON.stringify({ session_id: sessionId }),
         credentials: settings.use_auth ? 'include' : 'omit',
     });
-
     if (!response.ok) throw new Error('Failed to get saved T2I params');
-
     const data = await response.json();
 
-    // Normalize possible shapes:
-    //  - { error: "no_saved_params" }
-    //  - { rawInput: { rawInput: {...}, _saved_at: "..." } }
-    //  - { rawInput: {...} }
     if (data?.error === 'no_saved_params') return {};
-
     const nested = data?.rawInput;
     if (nested && typeof nested === 'object') {
-        // Prefer deeply nested .rawInput if present
         if (nested.rawInput && typeof nested.rawInput === 'object') {
             return { ...nested.rawInput };
         }
         return { ...nested };
     }
-
     return {};
 }
 
 /** Safely remove the "Generating image..." slice and force the chat UI to refresh. */
 async function removeGeneratingSlice(context) {
+    if (generatingMessageId === null) return;
+
     try {
-        if (generatingMessageId === null) return;
+        // Store the ID before clearing it
+        const messageIdToRemove = generatingMessageId;
+        generatingMessageId = null;
 
-        // Guard: ensure index in range
-        if (Array.isArray(context.chat) && generatingMessageId >= 0 && generatingMessageId < context.chat.length) {
-            context.chat.splice(generatingMessageId, 1);
-        }
+        // Remove from the chat array
+        context.chat.splice(messageIdToRemove, 1);
 
-        // Persist first (so storage is consistent)
+        // Force a complete UI rebuild by triggering the chat changed event
+        await eventSource.emit(event_types.CHAT_CHANGED, -1);
+
+        // Save the chat to persist the changes
         await context.saveChat();
 
-        // Tell ST the chat changed — good chance this will re-render properly
-        try { await eventSource.emit(event_types.CHAT_CHANGED); } catch (e) { console.warn('CHAT_CHANGED emit failed', e); }
-
-        // Extra fallback: attempt direct DOM removal. Adjust selectors if your UI uses different attributes.
-        try {
-            // Many SillyTavern instances render messages with a data-index or data-id attribute.
-            // Try a few common patterns — if your build uses a different DOM structure, adjust these selectors.
-            const selectors = [
-                `.message[data-index="${generatingMessageId}"]`,
-                `#message-${generatingMessageId}`,
-                `.chat-message[data-index="${generatingMessageId}"]`
-            ];
-            for (const sel of selectors) {
-                const el = document.querySelector(sel);
-                if (el && el.parentNode) {
-                    el.parentNode.removeChild(el);
+        // Additional DOM cleanup in case the above doesn't work
+        setTimeout(() => {
+            // Find and remove any remaining "Generating image" messages from the DOM
+            $('#chat .mes').each(function () {
+                const messageText = $(this).find('.mes_text').text().trim();
+                if (messageText === 'Generating image…' || messageText === 'Generating image...') {
+                    $(this).closest('.mes').remove();
                 }
-            }
-        } catch (domErr) {
-            console.warn('DOM cleanup fallback failed', domErr);
-        }
+            });
+        }, 50);
 
-    } finally {
-        generatingMessageId = null;
+    } catch (error) {
+        console.error('Error removing generating slice:', error);
+        // Fallback: force a page refresh if all else fails
+        // location.reload();
     }
 }
 
 async function generateImage() {
     const context = getContext();
     const chat = context.chat;
+
     if (!Array.isArray(chat) || chat.length === 0) {
         toastr.error('No chat messages to base image on.');
         return;
@@ -160,34 +145,31 @@ async function generateImage() {
         is_system: true,
         mes: 'Generating image…',
         sendDate: Date.now(),
-        extra: {},
+        extra: { isTemporary: true }, // Mark as temporary for easier identification
     };
+
     chat.push(generatingMessage);
     generatingMessageId = chat.length - 1;
-    // Render + persist the new slice like core code does
-    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId, 'extension');
+
+    // Render the generating message
+    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
     context.addOneMessage(generatingMessage);
-    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId, 'extension');
-    await context.saveChat();
+    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
 
     try {
         const sessionId = await getSessionId();
-
-        // 1) Pull current params from SwarmUI
         const savedParams = await getSavedT2IParams(sessionId);
         let rawInput = { ...savedParams };
 
-        // 2) Build the prompt (append if user requested and saved prompt exists)
+        // Build the prompt
         let prompt = imagePrompt;
         if (settings.append_prompt && rawInput.prompt) {
             prompt = `${rawInput.prompt}, ${imagePrompt}`;
         }
         rawInput.prompt = prompt;
 
-        // 3) Generate
+        // Generate the image
         const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
-
-        // Default images if not present in saved params
         const requestBody = {
             session_id: sessionId,
             images: rawInput.images ?? 1,
@@ -208,7 +190,6 @@ async function generateImage() {
 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-        // Defensive parse in case server writes logs into body
         const responseText = await response.text();
         let data;
         try {
@@ -220,13 +201,16 @@ async function generateImage() {
 
         if (!data?.images?.length) throw new Error('No images returned from API');
 
-        // --- after successfully receiving data.images[0] ---
+        // Normalize image url
         let imageSrc = data.images[0];
         if (typeof imageSrc === 'string' && !imageSrc.startsWith('data:') && !imageSrc.startsWith('http')) {
             imageSrc = `${settings.url}/${imageSrc}`;
         }
 
-        // Build the image message object
+        // Remove the generating message BEFORE adding the final image
+        await removeGeneratingSlice(context);
+
+        // Add the final image message
         const imageMessage = {
             name: context.name2 || 'System',
             is_system: true,
@@ -235,32 +219,14 @@ async function generateImage() {
             extra: { image: imageSrc },
         };
 
-        // --- REPLACE the generating message in-place (do NOT splice) ---
-        if (generatingMessageId !== null && typeof chat[generatingMessageId] !== 'undefined') {
-            // Put the new content into the same array slot
-            chat[generatingMessageId] = imageMessage;
+        chat.push(imageMessage);
+        const imageMessageId = chat.length - 1;
 
-            // Let SillyTavern re-render that specific index
-            // Use the same event flow you used to add messages earlier
-            await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId, 'extension');
-            context.addOneMessage(imageMessage); // safe no-op if internals handle duplicates
-            await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId, 'extension');
+        await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
+        context.addOneMessage(imageMessage);
+        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
+        await context.saveChat();
 
-            // Persist
-            await context.saveChat();
-
-            // Clear the marker
-            generatingMessageId = null;
-        } else {
-            // If for some reason we lost the index, push as a new message and emit
-            chat.push(imageMessage);
-            const imageMessageId = chat.length - 1;
-            await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId, 'extension');
-            context.addOneMessage(imageMessage);
-            await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId, 'extension');
-            await context.saveChat();
-            generatingMessageId = null;
-        }
     } catch (error) {
         console.error('Generation error:', error);
         toastr.error('Failed to generate image.');
@@ -271,12 +237,10 @@ async function generateImage() {
 jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
     $("#extensions_settings").append(settingsHtml);
-
     $("#swarm_settings input, #swarm_settings textarea").on("input", onInput);
 
     const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
     $("#send_but").before(buttonHtml);
-
     $("#swarm_generate_button").on("click", generateImage);
 
     await loadSettings();
