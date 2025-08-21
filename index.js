@@ -42,7 +42,7 @@ async function getSessionId() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'skip_zrok_interstitial': '1', // 👈 added for zrok
+            'skip_zrok_interstitial': '1',
             ...getRequestHeaders()
         },
         body: JSON.stringify({}),
@@ -57,13 +57,14 @@ async function getSessionId() {
     return data.session_id;
 }
 
-async function getUserSettings(sessionId) {
-    const url = `${settings.url}/API/GetUserSettings`;
+// New function to get saved T2I parameters using your new API method
+async function getSavedT2IParams(sessionId) {
+    const url = `${settings.url}/API/GetSavedT2IParams`;
     const response = await fetch(url, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'skip_zrok_interstitial': '1', // 👈 added for zrok
+            'skip_zrok_interstitial': '1',
             ...getRequestHeaders()
         },
         body: JSON.stringify({ session_id: sessionId }),
@@ -71,10 +72,31 @@ async function getUserSettings(sessionId) {
     });
 
     if (!response.ok) {
-        throw new Error('Failed to get user settings');
+        throw new Error('Failed to get saved T2I parameters');
     }
 
-    return await response.json();
+    const data = await response.json();
+
+    // Handle the nested rawInput structure from your API response
+    if (data.rawInput && data.rawInput.rawInput) {
+        return data.rawInput.rawInput;
+    } else if (data.error === 'no_saved_params') {
+        // Return default parameters if none saved
+        return {
+            prompt: "",
+            negativeprompt: "",
+            model: "(None)",
+            images: "1",
+            seed: "-1",
+            steps: "30",
+            cfgscale: "7",
+            aspectratio: "1:1",
+            width: "512",
+            height: "512"
+        };
+    }
+
+    throw new Error('Invalid response format from GetSavedT2IParams');
 }
 
 async function generateImage() {
@@ -84,9 +106,11 @@ async function generateImage() {
         toastr.error('No chat messages to base image on.');
         return;
     }
+
     // Get last message as description
     const lastMessage = chat[chat.length - 1].mes;
     const llmPrompt = substituteParams(settings.llm_prompt).replace('{description}', lastMessage);
+
     // Generate image prompt from LLM
     let imagePrompt;
     try {
@@ -95,6 +119,7 @@ async function generateImage() {
         toastr.error('Failed to generate image prompt from LLM.');
         return;
     }
+
     // Insert generating message
     const generatingMessage = {
         name: context.name2 || 'System',
@@ -105,36 +130,42 @@ async function generateImage() {
     };
     chat.push(generatingMessage);
     generatingMessageId = chat.length - 1;
+
+    // Properly update the UI
     context.addOneMessage(generatingMessage);
     context.saveChat();
 
     try {
         const sessionId = await getSessionId();
-        const generationSettings = await getGenerationSettings(sessionId);
-        let rawInput = generationSettings || {};
+
+        // Use the new API method to get saved T2I parameters
+        const savedParams = await getSavedT2IParams(sessionId);
+
+        // Prepare the prompt
         let prompt = imagePrompt;
-        if (settings.append_prompt && rawInput.prompt) {
-            prompt = rawInput.prompt + ', ' + imagePrompt;
+        if (settings.append_prompt && savedParams.prompt) {
+            prompt = savedParams.prompt + ', ' + imagePrompt;
         }
-        rawInput.prompt = prompt;
 
-        // Try direct request first (same as other functions in your script)
-        const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
-
-        const requestBody = {
-            session_id: sessionId,
-            images: 1,
-            ...rawInput  // Spread rawInput at the same level as required by the API
+        // Update the prompt in the parameters
+        const requestParams = {
+            ...savedParams,
+            prompt: prompt,
+            session_id: sessionId
         };
+
+        const apiUrl = `${settings.url}/API/GenerateText2Image`;
 
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
-                'skip_zrok_interstitial': '1', // Also try as header like your other functions
+                'skip_zrok_interstitial': '1',
+                ...getRequestHeaders()
             },
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify(requestParams),
+            credentials: settings.use_auth ? 'include' : 'omit'
         });
 
         if (!response.ok) {
@@ -142,7 +173,7 @@ async function generateImage() {
         }
 
         const responseText = await response.text();
-        console.log('Raw response:', responseText); // Debug log
+        console.log('Raw response:', responseText);
 
         let data;
         try {
@@ -154,12 +185,13 @@ async function generateImage() {
 
         if (data.images && data.images.length > 0) {
             let imageSrc = data.images[0];
+
             // If it's not already a data URL or full URL, prepend the base URL
             if (!imageSrc.startsWith('data:') && !imageSrc.startsWith('http')) {
                 imageSrc = `${settings.url}/${imageSrc}`;
             }
 
-            // Add final image in a new message
+            // Replace the generating message with the image message
             const imageMessage = {
                 name: context.name2 || 'System',
                 is_system: true,
@@ -167,40 +199,47 @@ async function generateImage() {
                 sendDate: Date.now(),
                 extra: { image: imageSrc },
             };
-            chat.push(imageMessage);
-            context.addOneMessage(imageMessage);
+
+            // Replace the generating message in the chat array
+            chat[generatingMessageId] = imageMessage;
+
+            // Force UI update by clearing and re-adding messages
             context.saveChat();
 
-            // Remove the generating message since we're adding the image message
-            chat.splice(generatingMessageId, 1);
-            context.saveChat();
+            // Trigger a chat refresh to update the UI properly
+            eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
+
         } else {
             throw new Error('No images returned from API');
         }
 
     } catch (error) {
         console.error('Generation error:', error);
-        // Remove the generating message instead of updating it
-        if (generatingMessageId !== null) {
+
+        // Remove the generating message on error
+        if (generatingMessageId !== null && generatingMessageId < chat.length) {
             chat.splice(generatingMessageId, 1);
             context.saveChat();
+
+            // Trigger UI refresh to remove the generating message
+            eventSource.emit(event_types.CHAT_CHANGED, getCurrentChatId());
         }
-        toastr.error('Failed to generate image.');
+
+        toastr.error('Failed to generate image: ' + error.message);
     } finally {
         generatingMessageId = null;
     }
 }
 
-
 jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
-    
+
     $("#extensions_settings").append(settingsHtml);
 
     $("#swarm_settings input, #swarm_settings textarea").on("input", onInput);
 
     const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
-    $("#send_but").before(buttonHtml);  // Add button before send button
+    $("#send_but").before(buttonHtml);
 
     $("#swarm_generate_button").on("click", generateImage);
 
