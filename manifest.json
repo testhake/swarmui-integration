@@ -5,6 +5,7 @@
     "version": "1.0.0",
     "author": "xAI Grok",
     "requires": [],
+    "js": "index.js",
     "css": "style.css",
     "settings": "settings.html",
     "button": "button.html"
