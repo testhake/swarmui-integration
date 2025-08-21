@@ -1,0 +1,45 @@
+<div class="swarmui_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>SwarmUI Integration Settings</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-info"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <p>This extension connects to a running SwarmUI instance to generate images.</p>
+            <ul>
+                <li><b>SwarmUI URL:</b> The address of your SwarmUI web interface. Usually <code>http://127.0.0.1:7804</code>.</li>
+                <li><b>Show Generation Button:</b> Toggles the image generation button in the chat input area.</li>
+                <li><b>LLM Image Prompt:</b> The template used to ask the current LLM to generate a visual prompt. This is what the AI sees.</li>
+                <li><b>Append to Existing Prompt:</b> When checked, the new prompt from the LLM is added to whatever you already have in the SwarmUI prompt box. When unchecked, it replaces it completely.</li>
+                <li><b>Number of Images:</b> How many images to request from SwarmUI at once.</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label for="swarmUrl">SwarmUI URL</label>
+        <input id="swarmUrl" class="text_pole" type="text" data-variable="swarmUrl" data-setting-type="text" placeholder="http://127.0.0.1:7804">
+    </div>
+
+    <div class="form-group">
+        <label for="showButton">Show Generation Button</label>
+        <input id="showButton" class="checkbox" type="checkbox" data-variable="showButton" data-setting-type="bool">
+    </div>
+
+    <div class="form-group">
+        <label for="prompt">LLM Image Prompt
+            <i class="fa-solid fa-circle-info" title="The prompt sent to the LLM to generate the final image prompt. Use {{prompt}} for the last user message and {{char}} for the character's name."></i>
+        </label>
+        <textarea id="prompt" class="text_pole" rows="6" data-variable="prompt" data-setting-type="multiline_text"></textarea>
+    </div>
+
+    <div class="form-group">
+        <label for="appendPrompt">Append to Existing Prompt in SwarmUI</label>
+        <input id="appendPrompt" class="checkbox" type="checkbox" data-variable="appendPrompt" data-setting-type="bool">
+    </div>
+    
+    <div class="form-group">
+        <label for="numImages">Number of Images</label>
+        <input id="numImages" class="text_pole" type="number" min="1" max="100" data-variable="numImages" data-setting-type="number">
+    </div>
+</div>

@@ -1,0 +1,31 @@
+#swarm-button {
+    cursor: pointer;
+    font-size: 1.2em;
+    padding: 0 10px;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+#swarm-button:hover {
+    opacity: 1;
+}
+
+#swarm-button.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    animation: spin 1.5s linear infinite;
+}
+
+.swarm-loading-image {
+    filter: blur(5px);
+    opacity: 0.8;
+    max-width: 256px;
+    margin-top: 10px;
+    border-radius: 5px;
+}
+
+/* Keyframe animation for spinning */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
