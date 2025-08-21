@@ -120,8 +120,8 @@ async function generateImage() {
         rawInput.prompt = prompt;
 
         // Use HTTP API for generation with zrok bypass via CORS proxy
-        const targetUrl = encodeURIComponent(settings.url + '/API/GenerateText2Image?skip_zrok_interstitial=1');
-        const apiUrl = `https://corsproxy.io/?${targetUrl}`;
+        const targetUrl = settings.url + '/API/GenerateText2Image?skip_zrok_interstitial=1';
+        const apiUrl = `https://cors.sh/${targetUrl}`;
 
         const requestBody = {
             session_id: sessionId,
@@ -143,7 +143,16 @@ async function generateImage() {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        const data = await response.json();
+        const responseText = await response.text();
+        console.log('Raw response:', responseText); // Debug log
+
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (parseError) {
+            console.error('Failed to parse JSON response:', responseText);
+            throw new Error('Invalid JSON response from server');
+        }
 
         if (data.images && data.images.length > 0) {
             let imageSrc = data.images[0];
@@ -179,6 +188,7 @@ async function generateImage() {
         generatingMessageId = null;
     }
 }
+
 
 
 
