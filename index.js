@@ -77,7 +77,6 @@ async function getUserSettings(sessionId) {
     return await response.json();
 }
 
-
 async function generateImage() {
     const context = getContext();
     const chat = context.chat;
@@ -121,7 +120,7 @@ async function generateImage() {
 
         // Use HTTP API for generation with zrok bypass via CORS proxy
         const targetUrl = settings.url + '/API/GenerateText2Image?skip_zrok_interstitial=1';
-        const apiUrl = `https://proxy.corsfix.com/?${targetUrl}`;
+        const apiUrl = `https://api.allorigins.win/raw?url=${targetUrl}`;
 
         const requestBody = {
             session_id: sessionId,
@@ -161,23 +160,37 @@ async function generateImage() {
                 imageSrc = `${settings.url}/${imageSrc}`;
             }
 
-            // Update the generating message with the final image
-            chat[generatingMessageId].mes = 'Generated image:';
-            chat[generatingMessageId].extra.image = imageSrc;
-            context.addOneMessage(chat[generatingMessageId]);
+            // Add final image in a new message
+            const imageMessage = {
+                name: context.name2 || 'System',
+                is_system: true,
+                mes: 'Generated image:',
+                sendDate: Date.now(),
+                extra: { image: imageSrc },
+            };
+            chat.push(imageMessage);
+            context.addOneMessage(imageMessage);
+            context.saveChat();
+
+            // Remove the generating message since we're adding the image message
+            chat.splice(generatingMessageId, 1);
+            context.saveChat();
         } else {
             throw new Error('No images returned from API');
         }
 
     } catch (error) {
         console.error('Generation error:', error);
-        chat[generatingMessageId].mes = 'Failed to generate image.';
-        context.addOneMessage(chat[generatingMessageId]);
+        // Remove the generating message instead of updating it
+        if (generatingMessageId !== null) {
+            chat.splice(generatingMessageId, 1);
+            context.saveChat();
+        }
+        toastr.error('Failed to generate image.');
     } finally {
         generatingMessageId = null;
     }
 }
-
 
 
 
