@@ -180,14 +180,14 @@ async function generateImage() {
 jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
     
-    $('#extensions_settings').append(settingsHtml);
+    $("#extensions_settings").append(settingsHtml);
 
-    $('#swarm_settings input, #swarm_settings textarea').on('input', onInput);
+    $("#swarm_settings input, #swarm_settings textarea").on("input", onInput);
 
     const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
-    $('#send_but').before(buttonHtml);  // Add button before send button
+    $("#send_but").before(buttonHtml);  // Add button before send button
 
-    $('#swarm_generate_button').on('click', generateImage);
+    $("#swarm_generate_button").on("click", generateImage);
 
     await loadSettings();
 });
