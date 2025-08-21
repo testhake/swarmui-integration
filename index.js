@@ -103,7 +103,7 @@ async function generateImage() {
     const generatingMessage = {
         name: context.name2 || 'System',
         is_system: true,
-        mes: 'Generating image... (0%)',
+        mes: 'Generating image...',
         sendDate: Date.now(),
         extra: {},
     };
@@ -123,63 +123,48 @@ async function generateImage() {
         }
         rawInput.prompt = prompt;
 
-        // Use WebSocket for generation with updates
-        const wsUrl = settings.url.replace(/^http/, 'ws')
-            + '/API/GenerateText2ImageWS'
-            + '?skip_zrok_interstitial=1'; // 👈 zrok bypass
-        const ws = new WebSocket(wsUrl);
-
-        ws.onopen = () => {
-            ws.send(JSON.stringify({
+        // 🔽 HTTP instead of WebSocket
+        const url = `${settings.url}/API/GenerateText2Image`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getRequestHeaders() },
+            body: JSON.stringify({
                 session_id: sessionId,
                 images: 1,
                 rawInput: rawInput,
-            }));
-        };
+            }),
+            credentials: settings.use_auth ? 'include' : 'omit',
+        });
 
-        ws.onmessage = async (event) => {
-            const data = JSON.parse(event.data);
+        if (!response.ok) {
+            throw new Error('Failed to generate image');
+        }
 
-            if (data.gen_progress) {
-                const overallPercent = Math.round(data.gen_progress.overall_percent * 100);
-                chat[generatingMessageId].mes = `Generating image... (${overallPercent}%)`;
-                if (data.gen_progress.preview) {
-                    chat[generatingMessageId].extra.image = data.gen_progress.preview;
-                }
-                context.addOneMessage(chat[generatingMessageId]);
-            } else if (data.image) {
-                let imageSrc = data.image.image;
-                if (!imageSrc.startsWith('data:')) {
-                    imageSrc = `${settings.url}/${imageSrc}`;
-                }
-                // Add final image in a new message
-                const imageMessage = {
-                    name: context.name2 || 'System',
-                    is_system: true,
-                    mes: 'Generated image:',
-                    sendDate: Date.now(),
-                    extra: { image: imageSrc },
-                };
-                chat.push(imageMessage);
-                context.addOneMessage(imageMessage);
-                context.saveChat();
+        const data = await response.json();
 
-                // Update generating message to done
-                chat[generatingMessageId].mes = 'Image generation complete.';
-                context.addOneMessage(chat[generatingMessageId]);
-                ws.close();
+        // Show the image
+        if (data && data.image) {
+            let imageSrc = data.image.image;
+            if (!imageSrc.startsWith('data:')) {
+                imageSrc = `${settings.url}/${imageSrc}`;
             }
-        };
+            const imageMessage = {
+                name: context.name2 || 'System',
+                is_system: true,
+                mes: 'Generated image:',
+                sendDate: Date.now(),
+                extra: { image: imageSrc },
+            };
+            chat.push(imageMessage);
+            context.addOneMessage(imageMessage);
+            context.saveChat();
+        }
 
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            chat[generatingMessageId].mes = 'Error generating image.';
-            context.addOneMessage(chat[generatingMessageId]);
-        };
+        // Update generating message
+        chat[generatingMessageId].mes = 'Image generation complete.';
+        context.addOneMessage(chat[generatingMessageId]);
+        generatingMessageId = null;
 
-        ws.onclose = () => {
-            generatingMessageId = null;
-        };
     } catch (error) {
         console.error('Generation error:', error);
         chat[generatingMessageId].mes = 'Failed to generate image.';
@@ -187,6 +172,7 @@ async function generateImage() {
         generatingMessageId = null;
     }
 }
+
 
 jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
