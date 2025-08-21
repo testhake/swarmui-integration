@@ -180,6 +180,7 @@ async function generateImage() {
 }
 
 
+
 jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
     
