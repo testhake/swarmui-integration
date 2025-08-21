@@ -121,7 +121,7 @@ async function generateImage() {
 
         // Use HTTP API for generation with zrok bypass via CORS proxy
         const targetUrl = settings.url + '/API/GenerateText2Image?skip_zrok_interstitial=1';
-        const apiUrl = `https://cors.sh/${targetUrl}`;
+        const apiUrl = `https://corsfix.com/?url=${targetUrl}`;
 
         const requestBody = {
             session_id: sessionId,
@@ -161,20 +161,9 @@ async function generateImage() {
                 imageSrc = `${settings.url}/${imageSrc}`;
             }
 
-            // Add final image in a new message
-            const imageMessage = {
-                name: context.name2 || 'System',
-                is_system: true,
-                mes: 'Generated image:',
-                sendDate: Date.now(),
-                extra: { image: imageSrc },
-            };
-            chat.push(imageMessage);
-            context.addOneMessage(imageMessage);
-            context.saveChat();
-
-            // Update generating message to done
-            chat[generatingMessageId].mes = 'Image generation complete.';
+            // Update the generating message with the final image
+            chat[generatingMessageId].mes = 'Generated image:';
+            chat[generatingMessageId].extra.image = imageSrc;
             context.addOneMessage(chat[generatingMessageId]);
         } else {
             throw new Error('No images returned from API');
