@@ -1,4 +1,5 @@
 ﻿// SwarmUI extension (self-contained runtime script) -- safe, no top-level imports
+console.log("RUNNING");
 (function () {
     const MODULE = 'swarmui';
     const DEFAULTS = {
