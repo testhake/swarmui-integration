@@ -121,7 +121,7 @@ async function generateImage() {
 
         // Use HTTP API for generation with zrok bypass via CORS proxy
         const targetUrl = settings.url + '/API/GenerateText2Image?skip_zrok_interstitial=1';
-        const apiUrl = `https://corsfix.com/?url=${targetUrl}`;
+        const apiUrl = `https://proxy.corsfix.com/?${targetUrl}`;
 
         const requestBody = {
             session_id: sessionId,
