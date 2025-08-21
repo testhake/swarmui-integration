@@ -1,12 +1,47 @@
 {
-    "name": "swarmui-integration",
-    "display_name": "Swarm UI",
-    "description": "Integrates SwarmUI for image generation in chat",
+    "name": "SwarmUI Integration",
+    "display_name": "SwarmUI Image Generation",
+    "author": "Gemini",
+    "description": "Integrates SwarmUI for image generation, using your current SwarmUI settings. Adds a button to the chat to generate an image based on the current context.",
     "version": "1.0.0",
-    "author": "xAI Grok",
-    "requires": [],
     "js": "index.js",
+    "settings_file": "settings.html",
     "css": "style.css",
-    "settings": "settings.html",
-    "button": "button.html"
+    "variables": [
+        {
+            "name": "swarmUrl",
+            "label": "SwarmUI URL",
+            "type": "text",
+            "default_value": "http://127.0.0.1:7804",
+            "description": "The base URL for your SwarmUI instance."
+        },
+        {
+            "name": "showButton",
+            "label": "Show Generation Button",
+            "type": "bool",
+            "default_value": true,
+            "description": "Show the image generation button next to the text input."
+        },
+        {
+            "name": "prompt",
+            "label": "LLM Image Prompt",
+            "type": "multiline_text",
+            "default_value": "Based on the last user message, create a short, descriptive, visually rich Stable Diffusion prompt for an image. The prompt should be a single paragraph of comma-separated tags. Focus on the most recent action or description. Do not include character dialogue. Describe the character's appearance, their action, the environment, and the overall mood.\n\nHere is the last message:\n\"{{prompt}}\"",
+            "description": "The prompt sent to the LLM to generate the image prompt. Use {{prompt}} for the last user message and {{char}} for the character's name."
+        },
+        {
+            "name": "appendPrompt",
+            "label": "Append to Existing Prompt",
+            "type": "bool",
+            "default_value": true,
+            "description": "If enabled, the LLM-generated prompt will be appended to the prompt currently in your SwarmUI settings. If disabled, it will replace it."
+        },
+        {
+            "name": "numImages",
+            "label": "Number of Images",
+            "type": "number",
+            "default_value": 1,
+            "description": "How many images to generate in a single batch."
+        }
+    ]
 }
