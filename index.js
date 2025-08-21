@@ -85,11 +85,9 @@ async function generateImage() {
         toastr.error('No chat messages to base image on.');
         return;
     }
-
     // Get last message as description
     const lastMessage = chat[chat.length - 1].mes;
     const llmPrompt = substituteParams(settings.llm_prompt).replace('{description}', lastMessage);
-
     // Generate image prompt from LLM
     let imagePrompt;
     try {
@@ -98,12 +96,11 @@ async function generateImage() {
         toastr.error('Failed to generate image prompt from LLM.');
         return;
     }
-
     // Insert generating message
     const generatingMessage = {
         name: context.name2 || 'System',
         is_system: true,
-        mes: 'Generating image... (0%)',
+        mes: 'Generating image...',
         sendDate: Date.now(),
         extra: {},
     };
@@ -116,74 +113,66 @@ async function generateImage() {
         const sessionId = await getSessionId();
         const userSettings = await getUserSettings(sessionId);
         let rawInput = userSettings.settings || {};
-
         let prompt = imagePrompt;
         if (settings.append_prompt && rawInput.prompt) {
             prompt = rawInput.prompt + ', ' + imagePrompt;
         }
         rawInput.prompt = prompt;
 
-        // Use WebSocket for generation with updates
-        const wsUrl = settings.url.replace(/^http/, 'ws')
-            + '/API/GenerateText2ImageWS'
-            + '?skip_zrok_interstitial=1'; // 👈 zrok bypass
-        const ws = new WebSocket(wsUrl);
+        // Use HTTP API for generation with zrok bypass
+        const apiUrl = settings.url + '/API/GenerateText2Image?skip_zrok_interstitial=1';
 
-        ws.onopen = () => {
-            ws.send(JSON.stringify({
-                session_id: sessionId,
-                images: 1,
-                rawInput: rawInput,
-            }));
+        const requestBody = {
+            session_id: sessionId,
+            images: 1,
+            ...rawInput  // Spread rawInput at the same level as required by the API
         };
 
-        ws.onmessage = async (event) => {
-            const data = JSON.parse(event.data);
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody)
+        });
 
-            if (data.gen_progress) {
-                const overallPercent = Math.round(data.gen_progress.overall_percent * 100);
-                chat[generatingMessageId].mes = `Generating image... (${overallPercent}%)`;
-                if (data.gen_progress.preview) {
-                    chat[generatingMessageId].extra.image = data.gen_progress.preview;
-                }
-                context.addOneMessage(chat[generatingMessageId]);
-            } else if (data.image) {
-                let imageSrc = data.image.image;
-                if (!imageSrc.startsWith('data:')) {
-                    imageSrc = `${settings.url}/${imageSrc}`;
-                }
-                // Add final image in a new message
-                const imageMessage = {
-                    name: context.name2 || 'System',
-                    is_system: true,
-                    mes: 'Generated image:',
-                    sendDate: Date.now(),
-                    extra: { image: imageSrc },
-                };
-                chat.push(imageMessage);
-                context.addOneMessage(imageMessage);
-                context.saveChat();
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
-                // Update generating message to done
-                chat[generatingMessageId].mes = 'Image generation complete.';
-                context.addOneMessage(chat[generatingMessageId]);
-                ws.close();
+        const data = await response.json();
+
+        if (data.images && data.images.length > 0) {
+            let imageSrc = data.images[0];
+            // If it's not already a data URL or full URL, prepend the base URL
+            if (!imageSrc.startsWith('data:') && !imageSrc.startsWith('http')) {
+                imageSrc = `${settings.url}/${imageSrc}`;
             }
-        };
 
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            chat[generatingMessageId].mes = 'Error generating image.';
+            // Add final image in a new message
+            const imageMessage = {
+                name: context.name2 || 'System',
+                is_system: true,
+                mes: 'Generated image:',
+                sendDate: Date.now(),
+                extra: { image: imageSrc },
+            };
+            chat.push(imageMessage);
+            context.addOneMessage(imageMessage);
+            context.saveChat();
+
+            // Update generating message to done
+            chat[generatingMessageId].mes = 'Image generation complete.';
             context.addOneMessage(chat[generatingMessageId]);
-        };
+        } else {
+            throw new Error('No images returned from API');
+        }
 
-        ws.onclose = () => {
-            generatingMessageId = null;
-        };
     } catch (error) {
         console.error('Generation error:', error);
         chat[generatingMessageId].mes = 'Failed to generate image.';
         context.addOneMessage(chat[generatingMessageId]);
+    } finally {
         generatingMessageId = null;
     }
 }
