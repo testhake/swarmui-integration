@@ -1,6 +1,6 @@
-﻿import { eventSource, event_types, saveSettingsDebounced, getRequestHeaders, substituteParams, getCurrentChatId } from '../../../../script.js';
-import { getContext, extension_settings, renderExtensionTemplateAsync } from '../../../extensions.js';
-import { generateQuietPrompt } from '../../../../script.js';  // Assuming this exists for quiet LLM generation
+﻿import { eventSource, event_types, saveSettingsDebounced, getRequestHeaders, substituteParams } from '../../../../script.js';
+import { getContext, extension_settings } from '../../../extensions.js';
+import { generateQuietPrompt } from '../../../../script.js';
 import { debounce_timeout } from '../../../constants.js';
 
 const MODULE_NAME = 'swarmui-integration';
@@ -33,9 +33,7 @@ function onInput(event) {
 }
 
 async function getSessionId() {
-    if (settings.session_id) {
-        return settings.session_id;
-    }
+    if (settings.session_id) return settings.session_id;
 
     const url = `${settings.url}/API/GetNewSession`;
     const response = await fetch(url, {
@@ -43,119 +41,129 @@ async function getSessionId() {
         headers: {
             'Content-Type': 'application/json',
             'skip_zrok_interstitial': '1',
-            ...getRequestHeaders()
+            ...getRequestHeaders(),
         },
         body: JSON.stringify({}),
         credentials: settings.use_auth ? 'include' : 'omit',
     });
 
-    if (!response.ok) {
-        throw new Error('Failed to get session ID');
-    }
+    if (!response.ok) throw new Error('Failed to get session ID');
 
     const data = await response.json();
     return data.session_id;
 }
 
-// New function to get saved T2I parameters using your new API method
+/**
+ * SwarmUI: Get the last saved T2I params for this user/session.
+ * Handles the nested shape: { rawInput: { rawInput: {...}, _saved_at: "..." } }
+ */
 async function getSavedT2IParams(sessionId) {
-    const url = `${settings.url}/API/GetSavedT2IParams`;
+    const url = `${settings.url}/API/GetSavedT2IParams?skip_zrok_interstitial=1`;
     const response = await fetch(url, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            'Accept': 'application/json',
             'skip_zrok_interstitial': '1',
-            ...getRequestHeaders()
+            ...getRequestHeaders(),
         },
         body: JSON.stringify({ session_id: sessionId }),
         credentials: settings.use_auth ? 'include' : 'omit',
     });
 
-    if (!response.ok) {
-        throw new Error('Failed to get saved T2I parameters');
-    }
+    if (!response.ok) throw new Error('Failed to get saved T2I params');
 
     const data = await response.json();
 
-    // Handle the nested rawInput structure from your API response
-    if (data.rawInput && data.rawInput.rawInput) {
-        return data.rawInput.rawInput;
-    } else if (data.error === 'no_saved_params') {
-        // Return default parameters if none saved
-        return {
-            prompt: "",
-            negativeprompt: "",
-            model: "(None)",
-            images: "1",
-            seed: "-1",
-            steps: "30",
-            cfgscale: "7",
-            aspectratio: "1:1",
-            width: "512",
-            height: "512"
-        };
+    // Normalize possible shapes:
+    //  - { error: "no_saved_params" }
+    //  - { rawInput: { rawInput: {...}, _saved_at: "..." } }
+    //  - { rawInput: {...} }
+    if (data?.error === 'no_saved_params') return {};
+
+    const nested = data?.rawInput;
+    if (nested && typeof nested === 'object') {
+        // Prefer deeply nested .rawInput if present
+        if (nested.rawInput && typeof nested.rawInput === 'object') {
+            return { ...nested.rawInput };
+        }
+        return { ...nested };
     }
 
-    throw new Error('Invalid response format from GetSavedT2IParams');
+    return {};
+}
+
+/** Safely remove the "Generating image..." slice and force the chat UI to refresh. */
+async function removeGeneratingSlice(context) {
+    if (generatingMessageId === null) return;
+    // Remove from the in-memory chat
+    context.chat.splice(generatingMessageId, 1);
+    // Force a UI refresh so the deleted slice vanishes visually
+    await eventSource.emit(event_types.CHAT_CHANGED);
+    await context.saveChat();
+    generatingMessageId = null;
 }
 
 async function generateImage() {
     const context = getContext();
     const chat = context.chat;
-    if (chat.length === 0) {
+    if (!Array.isArray(chat) || chat.length === 0) {
         toastr.error('No chat messages to base image on.');
         return;
     }
 
-    // Get last message as description
-    const lastMessage = chat[chat.length - 1].mes;
-    const llmPrompt = substituteParams(settings.llm_prompt).replace('{description}', lastMessage);
+    // Use the last message as the scene description
+    const lastMessage = chat[chat.length - 1].mes || '';
+    const llmPrompt = substituteParams(settings.llm_prompt || '').replace('{description}', lastMessage);
 
-    // Generate image prompt from LLM
+    // Generate the actual image prompt from the LLM
     let imagePrompt;
     try {
         imagePrompt = await generateQuietPrompt(llmPrompt);
-    } catch (error) {
+    } catch {
         toastr.error('Failed to generate image prompt from LLM.');
         return;
     }
 
-    // Insert generating message
+    // Insert a transient "Generating..." message
     const generatingMessage = {
         name: context.name2 || 'System',
         is_system: true,
-        mes: 'Generating image...',
+        mes: 'Generating image…',
         sendDate: Date.now(),
         extra: {},
     };
-
     chat.push(generatingMessage);
     generatingMessageId = chat.length - 1;
-
-    // Use SillyTavern's internal method to add and display the message
+    // Render + persist the new slice like core code does
+    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId, 'extension');
     context.addOneMessage(generatingMessage);
-    context.saveChat();
+    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId, 'extension');
+    await context.saveChat();
 
     try {
         const sessionId = await getSessionId();
 
-        // Use the new API method to get saved T2I parameters
+        // 1) Pull current params from SwarmUI
         const savedParams = await getSavedT2IParams(sessionId);
+        let rawInput = { ...savedParams };
 
-        // Prepare the prompt
+        // 2) Build the prompt (append if user requested and saved prompt exists)
         let prompt = imagePrompt;
-        if (settings.append_prompt && savedParams.prompt) {
-            prompt = savedParams.prompt + ', ' + imagePrompt;
+        if (settings.append_prompt && rawInput.prompt) {
+            prompt = `${rawInput.prompt}, ${imagePrompt}`;
         }
+        rawInput.prompt = prompt;
 
-        // Update the prompt in the parameters
-        const requestParams = {
-            ...savedParams,
-            prompt: prompt,
-            session_id: sessionId
+        // 3) Generate
+        const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
+
+        // Default images if not present in saved params
+        const requestBody = {
+            session_id: sessionId,
+            images: rawInput.images ?? 1,
+            ...rawInput,
         };
-
-        const apiUrl = `${settings.url}/API/GenerateText2Image`;
 
         const response = await fetch(apiUrl, {
             method: 'POST',
@@ -163,80 +171,76 @@ async function generateImage() {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
                 'skip_zrok_interstitial': '1',
-                ...getRequestHeaders()
+                ...getRequestHeaders(),
             },
-            body: JSON.stringify(requestParams),
-            credentials: settings.use_auth ? 'include' : 'omit'
+            body: JSON.stringify(requestBody),
+            credentials: settings.use_auth ? 'include' : 'omit',
         });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
+        // Defensive parse in case server writes logs into body
         const responseText = await response.text();
-        console.log('Raw response:', responseText);
-
         let data;
         try {
             data = JSON.parse(responseText);
-        } catch (parseError) {
-            console.error('Failed to parse JSON response:', responseText);
+        } catch {
+            console.error('Invalid JSON response:', responseText);
             throw new Error('Invalid JSON response from server');
         }
 
-        if (data.images && data.images.length > 0) {
-            let imageSrc = data.images[0];
+        if (!data?.images?.length) throw new Error('No images returned from API');
 
-            // If it's not already a data URL or full URL, prepend the base URL
-            if (!imageSrc.startsWith('data:') && !imageSrc.startsWith('http')) {
-                imageSrc = `${settings.url}/${imageSrc}`;
-            }
-
-            // Create the final image message
-            const imageMessage = {
-                name: context.name2 || 'System',
-                is_system: true,
-                mes: 'Generated image:',
-                sendDate: Date.now(),
-                extra: { image: imageSrc },
-            };
-
-            // Remove the generating message from the chat array
-            chat.splice(generatingMessageId, 1);
-
-            // Add the image message
-            chat.push(imageMessage);
-
-            // Save the chat first
-            context.saveChat();
-
-            // Force a complete chat reload to refresh the UI
-            await context.reloadCurrentChat();
-
-        } else {
-            throw new Error('No images returned from API');
+        // --- after successfully receiving data.images[0] ---
+        let imageSrc = data.images[0];
+        if (typeof imageSrc === 'string' && !imageSrc.startsWith('data:') && !imageSrc.startsWith('http')) {
+            imageSrc = `${settings.url}/${imageSrc}`;
         }
 
+        // Build the image message object
+        const imageMessage = {
+            name: context.name2 || 'System',
+            is_system: true,
+            mes: 'Generated image:',
+            sendDate: Date.now(),
+            extra: { image: imageSrc },
+        };
+
+        // --- REPLACE the generating message in-place (do NOT splice) ---
+        if (generatingMessageId !== null && typeof chat[generatingMessageId] !== 'undefined') {
+            // Put the new content into the same array slot
+            chat[generatingMessageId] = imageMessage;
+
+            // Let SillyTavern re-render that specific index
+            // Use the same event flow you used to add messages earlier
+            await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId, 'extension');
+            context.addOneMessage(imageMessage); // safe no-op if internals handle duplicates
+            await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId, 'extension');
+
+            // Persist
+            await context.saveChat();
+
+            // Clear the marker
+            generatingMessageId = null;
+        } else {
+            // If for some reason we lost the index, push as a new message and emit
+            chat.push(imageMessage);
+            const imageMessageId = chat.length - 1;
+            await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId, 'extension');
+            context.addOneMessage(imageMessage);
+            await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId, 'extension');
+            await context.saveChat();
+            generatingMessageId = null;
+        }
     } catch (error) {
         console.error('Generation error:', error);
-
-        // Remove the generating message on error
-        if (generatingMessageId !== null && generatingMessageId < chat.length) {
-            chat.splice(generatingMessageId, 1);
-            context.saveChat();
-            // Force reload to show the updated chat without the generating message
-            await context.reloadCurrentChat();
-        }
-
-        toastr.error('Failed to generate image: ' + error.message);
-    } finally {
-        generatingMessageId = null;
+        toastr.error('Failed to generate image.');
+        await removeGeneratingSlice(getContext());
     }
 }
 
 jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
-
     $("#extensions_settings").append(settingsHtml);
 
     $("#swarm_settings input, #swarm_settings textarea").on("input", onInput);
