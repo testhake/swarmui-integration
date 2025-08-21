@@ -1,69 +1,22 @@
-<div class="extension-settings">
-    <h3>SwarmUI (Swarm) — settings</h3>
+<!-- You might want to add additional HTML elements to ST.
+    It's good practice to separate it out from your code -->
+<div class="example-extension-settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Extension Example</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <div class="example-extension_block flex-container">
+                <input id="my_button" class="menu_button" type="submit" value="Example Button" />
+            </div>
 
-    <label>
-        Swarm base URL
-        <input id="swarm_base_url" type="text" placeholder="http://localhost:8000" />
-    </label>
+            <div class="example-extension_block flex-container">
+                <input id="example_setting" type="checkbox" />
+                <label for="example_setting">This is an example</label>
+            </div>
 
-    <label>
-        Use WebSocket (preferred for progress/preview)
-        <input id="swarm_use_ws" type="checkbox" />
-    </label>
-
-    <label>
-        Auth header (optional) — put something like "Bearer <token>
-            " or "Basic <base64>
-                "
-                <input id="swarm_auth_header" type="text" placeholder="Bearer ..." />
-    </label>
-
-    <label>
-        Images per request
-        <input id="swarm_images" type="number" min="1" max="10" value="1" />
-    </label>
-
-    <label>
-        LLM prompt template (used to ask the current LLM to create an image prompt)
-        <textarea id="swarm_llm_prompt_template" rows="4">Create a detailed image prompt (short, comma-separated tags and adjectives) describing: {{last_message}}</textarea>
-    </label>
-
-    <label>
-        Try to read SwarmUI's current prompt and <strong>append</strong> generated prompt if present
-        <input id="swarm_append_swarm_prompt" type="checkbox" />
-    </label>
-
-    <div style="margin-top:10px;">
-        <button id="swarm-save-settings">Save</button>
+            <hr class="sysHR" />
+        </div>
     </div>
 </div>
-
-<script>
-    (async () => {
-        // Helper functions supplied by SillyTavern runtime
-        const MODULE = 'swarmui';
-        // initialise inputs with current settings if available
-        const s = (window.extension_settings && window.extension_settings[MODULE]) || {};
-        document.getElementById('swarm_base_url').value = s.swarm_base_url || '';
-        document.getElementById('swarm_use_ws').checked = !!s.swarm_use_ws;
-        document.getElementById('swarm_auth_header').value = s.swarm_auth_header || '';
-        document.getElementById('swarm_images').value = s.swarm_images || 1;
-        document.getElementById('swarm_llm_prompt_template').value = s.swarm_llm_prompt_template || document.getElementById('swarm_llm_prompt_template').value;
-        document.getElementById('swarm_append_swarm_prompt').checked = !!s.swarm_append_swarm_prompt;
-
-        document.getElementById('swarm-save-settings').onclick = () => {
-            const newSettings = {
-                swarm_base_url: document.getElementById('swarm_base_url').value.trim(),
-                swarm_use_ws: document.getElementById('swarm_use_ws').checked,
-                swarm_auth_header: document.getElementById('swarm_auth_header').value.trim(),
-                swarm_images: parseInt(document.getElementById('swarm_images').value, 10) || 1,
-                swarm_llm_prompt_template: document.getElementById('swarm_llm_prompt_template').value,
-                swarm_append_swarm_prompt: document.getElementById('swarm_append_swarm_prompt').checked
-            };
-            // writeExtensionField is provided by SillyTavern's extension loader (index.js will also read extension_settings)
-            writeExtensionField(MODULE, JSON.stringify(newSettings));
-            // user feedback
-            callGenericPopup('Saved', { text: 'SwarmUI settings saved.' });
-        };
-    })();
-</script>
