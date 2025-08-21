@@ -124,7 +124,7 @@ async function generateImage() {
         rawInput.prompt = prompt;
 
         // 🔽 HTTP instead of WebSocket
-        const url = `${settings.url}/API/GenerateText2Image`;
+        const url = `${settings.url}/API/GenerateText2Image` + '?skip_zrok_interstitial=1';
         const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...getRequestHeaders() },
