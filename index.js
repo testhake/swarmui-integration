@@ -40,7 +40,11 @@ async function getSessionId() {
     const url = `${settings.url}/API/GetNewSession`;
     const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getRequestHeaders() },
+        headers: {
+            'Content-Type': 'application/json',
+            'skip_zrok_interstitial': '1', // 👈 added for zrok
+            ...getRequestHeaders()
+        },
         body: JSON.stringify({}),
         credentials: settings.use_auth ? 'include' : 'omit',
     });
@@ -57,7 +61,11 @@ async function getUserSettings(sessionId) {
     const url = `${settings.url}/API/GetUserSettings`;
     const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getRequestHeaders() },
+        headers: {
+            'Content-Type': 'application/json',
+            'skip_zrok_interstitial': '1', // 👈 added for zrok
+            ...getRequestHeaders()
+        },
         body: JSON.stringify({ session_id: sessionId }),
         credentials: settings.use_auth ? 'include' : 'omit',
     });
@@ -68,6 +76,7 @@ async function getUserSettings(sessionId) {
 
     return await response.json();
 }
+
 
 async function generateImage() {
     const context = getContext();
@@ -115,7 +124,9 @@ async function generateImage() {
         rawInput.prompt = prompt;
 
         // Use WebSocket for generation with updates
-        const wsUrl = settings.url.replace(/^http/, 'ws') + '/API/GenerateText2ImageWS';
+        const wsUrl = settings.url.replace(/^http/, 'ws')
+            + '/API/GenerateText2ImageWS'
+            + '?skip_zrok_interstitial=1'; // 👈 zrok bypass
         const ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
