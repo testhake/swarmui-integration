@@ -8,7 +8,7 @@ import { extension_settings, getContext, loadExtensionSettings } from "../../../
 import { saveSettingsDebounced } from "../../../../script.js";
 
 // Keep track of where your extension is located, name should match repo name
-const extensionName = "st-extension-example";
+const extensionName = "swarmui-integration";
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 const extensionSettings = extension_settings[extensionName];
 const defaultSettings = {};
