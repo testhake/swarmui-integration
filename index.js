@@ -10,6 +10,7 @@ const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
 
 let settings = {};
 let generatingMessageId = null;
+let cachedSessionId = null; // Cache the session ID
 
 async function loadSettings() {
     if (!extension_settings[MODULE_NAME]) {
@@ -20,22 +21,29 @@ async function loadSettings() {
     $('#swarm_session_id').val(settings.session_id || '').trigger('input');
     $('#swarm_llm_prompt').val(settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}').trigger('input');
     $('#swarm_append_prompt').prop('checked', !!settings.append_prompt).trigger('input');
-    $('#swarm_use_auth').prop('checked', !!settings.use_auth).trigger('input');
+
+    // Load cached session ID if it exists in settings
+    cachedSessionId = settings.cached_session_id || null;
 }
 
 function onInput(event) {
     const id = event.target.id.replace('swarm_', '');
-    if (id === 'append_prompt' || id === 'use_auth') {
+    if (id === 'append_prompt') {
         settings[id] = $(event.target).prop('checked');
     } else {
         settings[id] = $(event.target).val();
     }
     extension_settings[MODULE_NAME] = settings;
     saveSettingsDebounced();
+
+    // Clear cached session if URL changes
+    if (id === 'url') {
+        cachedSessionId = null;
+        delete settings.cached_session_id;
+    }
 }
 
-async function getSessionId() {
-    if (settings.session_id) return settings.session_id;
+async function createNewSession() {
     const url = `${settings.url}/API/GetNewSession`;
     const response = await fetch(url, {
         method: 'POST',
@@ -45,11 +53,72 @@ async function getSessionId() {
             ...getRequestHeaders(),
         },
         body: JSON.stringify({}),
-        credentials: settings.use_auth ? 'include' : 'omit',
+        credentials: 'omit', // Removed auth usage
     });
     if (!response.ok) throw new Error('Failed to get session ID');
     const data = await response.json();
     return data.session_id;
+}
+
+async function getSessionId() {
+    // If user provided a manual session ID, use that
+    if (settings.session_id && settings.session_id.trim()) {
+        return settings.session_id.trim();
+    }
+
+    // If we have a cached session ID, try to use it first
+    if (cachedSessionId) {
+        return cachedSessionId;
+    }
+
+    // Create new session and cache it
+    try {
+        const newSessionId = await createNewSession();
+        cachedSessionId = newSessionId;
+
+        // Store in settings for persistence
+        settings.cached_session_id = newSessionId;
+        extension_settings[MODULE_NAME] = settings;
+        saveSettingsDebounced();
+
+        console.log(`SwarmUI: Created new session ID: ${newSessionId}`);
+        return newSessionId;
+    } catch (error) {
+        console.error('SwarmUI: Failed to create new session:', error);
+        throw error;
+    }
+}
+
+async function validateAndGetSessionId() {
+    let sessionId = await getSessionId();
+
+    // Test the session ID by trying to get saved params
+    try {
+        await getSavedT2IParams(sessionId);
+        return sessionId; // Session is valid
+    } catch (error) {
+        console.warn(`SwarmUI: Session ${sessionId} appears invalid, creating new one:`, error);
+
+        // Clear cached session and create new one
+        cachedSessionId = null;
+        delete settings.cached_session_id;
+
+        try {
+            const newSessionId = await createNewSession();
+            cachedSessionId = newSessionId;
+
+            // Store in settings for persistence
+            settings.cached_session_id = newSessionId;
+            extension_settings[MODULE_NAME] = settings;
+            saveSettingsDebounced();
+
+            console.log(`SwarmUI: Created replacement session ID: ${newSessionId}`);
+            return newSessionId;
+        } catch (createError) {
+            console.error('SwarmUI: Failed to create replacement session:', createError);
+            throw createError;
+        }
+    }
 }
 
 /**
@@ -67,7 +136,7 @@ async function getSavedT2IParams(sessionId) {
             ...getRequestHeaders(),
         },
         body: JSON.stringify({ session_id: sessionId }),
-        credentials: settings.use_auth ? 'include' : 'omit',
+        credentials: 'omit', // Removed auth usage
     });
     if (!response.ok) throw new Error('Failed to get saved T2I params');
     const data = await response.json();
@@ -186,7 +255,7 @@ async function generateImage() {
     await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
 
     try {
-        const sessionId = await getSessionId();
+        const sessionId = await validateAndGetSessionId();
         const savedParams = await getSavedT2IParams(sessionId);
         let rawInput = { ...savedParams };
 
@@ -214,10 +283,19 @@ async function generateImage() {
                 ...getRequestHeaders(),
             },
             body: JSON.stringify(requestBody),
-            credentials: settings.use_auth ? 'include' : 'omit',
+            credentials: 'omit', // Removed auth usage
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+            // If the request fails, it might be due to an invalid session
+            // The validateAndGetSessionId function will handle creating a new one on the next call
+            if (response.status === 401 || response.status === 403) {
+                // Clear cached session for next attempt
+                cachedSessionId = null;
+                delete settings.cached_session_id;
+            }
+            throw new Error(`HTTP ${response.status}`);
+        }
 
         const responseText = await response.text();
         let data;
