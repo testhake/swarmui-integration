@@ -2,6 +2,8 @@
 import { getContext, extension_settings } from '../../../extensions.js';
 import { generateQuietPrompt } from '../../../../script.js';
 import { debounce_timeout } from '../../../constants.js';
+import { saveBase64AsFile, getBase64Async } from '../../../utils.js';
+import { getMessageTimeStamp, humanizedDateTime } from '../../../RossAscends-mods.js';
 
 const MODULE_NAME = 'swarmui-integration';
 const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
@@ -82,11 +84,10 @@ async function getSavedT2IParams(sessionId) {
 }
 
 /**
- * Download and save image to SillyTavern's user images folder
+ * Download image from SwarmUI and convert to base64
  */
-async function saveImageToSillyTavern(imageUrl) {
+async function downloadImageAsBase64(imageUrl) {
     try {
-        // Download the image
         const response = await fetch(imageUrl, {
             credentials: settings.use_auth ? 'include' : 'omit',
         });
@@ -96,42 +97,14 @@ async function saveImageToSillyTavern(imageUrl) {
         }
 
         const blob = await response.blob();
+        const base64 = await getBase64Async(blob);
 
-        // Create a unique filename
-        const timestamp = Date.now();
-        const randomStr = Math.random().toString(36).substring(2, 8);
-        const filename = `swarmui_${timestamp}_${randomStr}.png`;
-
-        // Convert blob to base64 for upload
-        const base64 = await new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.readAsDataURL(blob);
-        });
-
-        // Save to SillyTavern using the upload API
-        const formData = new FormData();
-        formData.append('avatar', blob, filename);
-
-        const uploadResponse = await fetch('/api/images/upload', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: formData,
-        });
-
-        if (!uploadResponse.ok) {
-            throw new Error(`Failed to save image to SillyTavern: ${uploadResponse.status}`);
-        }
-
-        const uploadResult = await uploadResponse.json();
-
-        // Return the path that SillyTavern can use
-        return uploadResult.path || `/img/user-images/${filename}`;
+        // Remove data URL prefix to get just the base64 string
+        return base64.replace(/^data:image\/[^;]+;base64,/, '');
 
     } catch (error) {
-        console.error('Error saving image:', error);
-        // Fallback: return original URL if saving fails
-        return imageUrl;
+        console.error('Error downloading image:', error);
+        throw error;
     }
 }
 
@@ -169,6 +142,49 @@ async function removeGeneratingSlice(context) {
     }
 }
 
+/**
+ * Send image message using SillyTavern's message system
+ * Similar to how the Stable Diffusion extension does it
+ */
+async function sendMessage(prompt, imagePath, characterName) {
+    const context = getContext();
+
+    // Create the message like the SD extension does
+    const messageText = `[${characterName || context.name2 || 'Assistant'} sends a picture that contains: ${prompt}]`;
+
+    const messageObj = {
+        name: characterName || context.name2 || 'Assistant',
+        is_system: false,
+        is_user: false,
+        mes: messageText,
+        send_date: getMessageTimeStamp(),
+        extra: {
+            gen_id: Date.now(),
+            gen_metadata: {
+                prompt: prompt,
+                source: 'swarmui'
+            }
+        }
+    };
+
+    context.chat.push(messageObj);
+    const messageId = context.chat.length - 1;
+
+    // Add the image to the message using SillyTavern's proper method
+    if (imagePath) {
+        context.chat[messageId].extra.image = imagePath;
+        context.chat[messageId].extra.title = 'Generated Image';
+    }
+
+    // Emit events and update UI
+    await eventSource.emit(event_types.MESSAGE_RECEIVED, messageId);
+    context.addOneMessage(messageObj);
+    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, messageId);
+
+    // Save the chat
+    await context.saveChat();
+}
+
 async function generateImage() {
     const context = getContext();
     const chat = context.chat;
@@ -197,7 +213,7 @@ async function generateImage() {
         name: context.name2 || 'System',
         is_system: true,
         mes: 'Generating image…',
-        sendDate: Date.now(),
+        send_date: getMessageTimeStamp(),
         extra: { isTemporary: true }, // Mark as temporary for easier identification
     };
 
@@ -260,42 +276,24 @@ async function generateImage() {
             imageSrc = `${settings.url}/${imageSrc}`;
         }
 
-        // Download and save the image to SillyTavern
-        console.log('Downloading and saving image:', imageSrc);
-        const savedImagePath = await saveImageToSillyTavern(imageSrc);
-        console.log('Image saved as:', savedImagePath);
+        // Download and convert to base64
+        console.log('Downloading image from:', imageSrc);
+        const base64Data = await downloadImageAsBase64(imageSrc);
+
+        // Determine character name for file naming
+        const characterName = context.groupId
+            ? context.groups[Object.keys(context.groups).filter(x => context.groups[x].id === context.groupId)[0]]?.id?.toString()
+            : context.characters[context.characterId]?.name || 'Assistant';
+
+        // Save the image file using SillyTavern's method
+        const filename = `${characterName}_${humanizedDateTime()}`;
+        const savedImagePath = await saveBase64AsFile(base64Data, characterName, filename, 'png');
 
         // Remove the generating message BEFORE adding the final image
         await removeGeneratingSlice(context);
 
-        // Add the final image message using SillyTavern's expected format
-        const imageMessage = {
-            name: context.name2 || 'System',
-            is_system: true,
-            mes: `<img src="${savedImagePath}" alt="Generated image" style="max-width: 100%; height: auto;">`,
-            sendDate: Date.now(),
-            extra: {
-                image: savedImagePath,
-                title: 'Generated Image',
-                // Add metadata for better compatibility
-                gen_id: Date.now(),
-                gen_metadata: {
-                    prompt: prompt,
-                    source: 'swarmui'
-                }
-            },
-        };
-
-        chat.push(imageMessage);
-        const imageMessageId = chat.length - 1;
-
-        // Emit events in the correct order
-        await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
-        context.addOneMessage(imageMessage);
-        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
-
-        // Save the chat after adding the message
-        await context.saveChat();
+        // Send the image message using the proper SillyTavern method
+        await sendMessage(prompt, savedImagePath, characterName);
 
         console.log('Image generation completed successfully');
         toastr.success('Image generated successfully!');
