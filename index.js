@@ -10,17 +10,12 @@ const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
 
 let settings = {};
 let generatingMessageId = null;
-let cachedSessionId = null; // Cache the session ID
 
 async function loadSettings() {
     if (!extension_settings[MODULE_NAME]) {
         extension_settings[MODULE_NAME] = {};
     }
     settings = extension_settings[MODULE_NAME];
-
-    // Load cached session ID from settings
-    cachedSessionId = settings.cached_session_id || null;
-
     $('#swarm_url').val(settings.url || 'http://localhost:7801').trigger('input');
     $('#swarm_session_id').val(settings.session_id || '').trigger('input');
     $('#swarm_llm_prompt').val(settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}').trigger('input');
@@ -39,48 +34,8 @@ function onInput(event) {
     saveSettingsDebounced();
 }
 
-/**
- * Tests if a session ID is still valid by making a lightweight API call
- */
-async function isSessionValid(sessionId) {
-    if (!sessionId) return false;
-
-    try {
-        const url = `${settings.url}/API/GetSavedT2IParams?skip_zrok_interstitial=1`;
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'skip_zrok_interstitial': '1',
-                ...getRequestHeaders(),
-            },
-            body: JSON.stringify({ session_id: sessionId }),
-            credentials: settings.use_auth ? 'include' : 'omit',
-        });
-
-        // If we get a successful response, the session is valid
-        return response.ok;
-    } catch (error) {
-        console.warn('Session validation failed:', error);
-        return false;
-    }
-}
-
-/**
- * Gets a valid session ID, using cached one if available, or creating new one if needed
- */
 async function getSessionId() {
-    // If user has manually set a session_id in settings, prioritize that
     if (settings.session_id) return settings.session_id;
-
-    // Check if we have a cached session and if it's still valid
-    if (cachedSessionId && await isSessionValid(cachedSessionId)) {
-        return cachedSessionId;
-    }
-
-    // Cache is invalid or doesn't exist, create a new session exactly like original
-    console.log('Creating new SwarmUI session...');
     const url = `${settings.url}/API/GetNewSession`;
     const response = await fetch(url, {
         method: 'POST',
@@ -94,15 +49,7 @@ async function getSessionId() {
     });
     if (!response.ok) throw new Error('Failed to get session ID');
     const data = await response.json();
-    const sessionId = data.session_id;
-
-    // Cache the session ID
-    cachedSessionId = sessionId;
-    settings.cached_session_id = sessionId;
-    extension_settings[MODULE_NAME] = settings;
-    saveSettingsDebounced();
-
-    return sessionId;
+    return data.session_id;
 }
 
 /**
@@ -122,18 +69,7 @@ async function getSavedT2IParams(sessionId) {
         body: JSON.stringify({ session_id: sessionId }),
         credentials: settings.use_auth ? 'include' : 'omit',
     });
-
-    if (!response.ok) {
-        // If this fails, the session might be invalid - clear cache
-        if (response.status === 401 || response.status === 403) {
-            cachedSessionId = null;
-            delete settings.cached_session_id;
-            extension_settings[MODULE_NAME] = settings;
-            saveSettingsDebounced();
-        }
-        throw new Error('Failed to get saved T2I params');
-    }
-
+    if (!response.ok) throw new Error('Failed to get saved T2I params');
     const data = await response.json();
 
     if (data?.error === 'no_saved_params') return {};
@@ -250,34 +186,8 @@ async function generateImage() {
     await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
 
     try {
-        let sessionId = await getSessionId();
-
-        let savedParams;
-        let retryCount = 0;
-        const maxRetries = 2;
-
-        // Try to get saved params, with retry logic for session issues
-        while (retryCount < maxRetries) {
-            try {
-                savedParams = await getSavedT2IParams(sessionId);
-                break; // Success, exit retry loop
-            } catch (error) {
-                retryCount++;
-                if (retryCount >= maxRetries) {
-                    throw error; // Give up after max retries
-                }
-
-                // If it failed, invalidate cache and try getting a fresh session
-                console.warn(`getSavedT2IParams failed (attempt ${retryCount}), getting new session...`);
-                cachedSessionId = null;
-                delete settings.cached_session_id;
-                extension_settings[MODULE_NAME] = settings;
-                saveSettingsDebounced();
-
-                sessionId = await getSessionId();
-            }
-        }
-
+        const sessionId = await getSessionId();
+        const savedParams = await getSavedT2IParams(sessionId);
         let rawInput = { ...savedParams };
 
         // Build the prompt
@@ -287,7 +197,7 @@ async function generateImage() {
         }
         rawInput.prompt = prompt;
 
-        // Generate the image with retry logic
+        // Generate the image
         const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
         const requestBody = {
             session_id: sessionId,
@@ -295,60 +205,19 @@ async function generateImage() {
             ...rawInput,
         };
 
-        let response;
-        retryCount = 0;
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'skip_zrok_interstitial': '1',
+                ...getRequestHeaders(),
+            },
+            body: JSON.stringify(requestBody),
+            credentials: settings.use_auth ? 'include' : 'omit',
+        });
 
-        while (retryCount < maxRetries) {
-            try {
-                response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'skip_zrok_interstitial': '1',
-                        ...getRequestHeaders(),
-                    },
-                    body: JSON.stringify(requestBody),
-                    credentials: settings.use_auth ? 'include' : 'omit',
-                });
-
-                if (response.ok) {
-                    break; // Success, exit retry loop
-                } else if (response.status === 401 || response.status === 403) {
-                    // Session might be invalid, try with new session
-                    retryCount++;
-                    if (retryCount >= maxRetries) {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-
-                    console.warn(`Image generation failed with ${response.status} (attempt ${retryCount}), getting new session...`);
-                    cachedSessionId = null;
-                    delete settings.cached_session_id;
-                    extension_settings[MODULE_NAME] = settings;
-                    saveSettingsDebounced();
-
-                    sessionId = await getSessionId();
-                    requestBody.session_id = sessionId;
-                } else {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-            } catch (error) {
-                retryCount++;
-                if (retryCount >= maxRetries) {
-                    throw error;
-                }
-
-                // For network errors, also try with a new session
-                console.warn(`Image generation failed (attempt ${retryCount}), getting new session...`);
-                cachedSessionId = null;
-                delete settings.cached_session_id;
-                extension_settings[MODULE_NAME] = settings;
-                saveSettingsDebounced();
-
-                sessionId = await getSessionId();
-                requestBody.session_id = sessionId;
-            }
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const responseText = await response.text();
         let data;
