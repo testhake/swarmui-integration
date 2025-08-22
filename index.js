@@ -81,32 +81,61 @@ async function getSavedT2IParams(sessionId) {
     return {};
 }
 
-/** Download and convert image to base64 data URL */
-async function downloadImageAsBase64(imageUrl) {
+/**
+ * Download and save image to SillyTavern's user images folder
+ */
+async function saveImageToSillyTavern(imageUrl) {
     try {
+        // Download the image
         const response = await fetch(imageUrl, {
             credentials: settings.use_auth ? 'include' : 'omit',
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to fetch image: ${response.status}`);
+            throw new Error(`Failed to download image: ${response.status}`);
         }
 
         const blob = await response.blob();
 
-        return new Promise((resolve, reject) => {
+        // Create a unique filename
+        const timestamp = Date.now();
+        const randomStr = Math.random().toString(36).substring(2, 8);
+        const filename = `swarmui_${timestamp}_${randomStr}.png`;
+
+        // Convert blob to base64 for upload
+        const base64 = await new Promise((resolve) => {
             const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result);
-            reader.onerror = reject;
+            reader.onload = () => resolve(reader.result);
             reader.readAsDataURL(blob);
         });
+
+        // Save to SillyTavern using the upload API
+        const formData = new FormData();
+        formData.append('avatar', blob, filename);
+
+        const uploadResponse = await fetch('/api/images/upload', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: formData,
+        });
+
+        if (!uploadResponse.ok) {
+            throw new Error(`Failed to save image to SillyTavern: ${uploadResponse.status}`);
+        }
+
+        const uploadResult = await uploadResponse.json();
+
+        // Return the path that SillyTavern can use
+        return uploadResult.path || `/img/user-images/${filename}`;
+
     } catch (error) {
-        console.error('Error downloading image:', error);
-        return null;
+        console.error('Error saving image:', error);
+        // Fallback: return original URL if saving fails
+        return imageUrl;
     }
 }
 
-/** Safely remove the "Generating image..." message */
+/** Safely remove the "Generating image..." slice and force the chat UI to refresh. */
 async function removeGeneratingSlice(context) {
     if (generatingMessageId === null) return;
 
@@ -118,18 +147,22 @@ async function removeGeneratingSlice(context) {
         // Remove from the chat array
         context.chat.splice(messageIdToRemove, 1);
 
-        // Force UI refresh
+        // Force a complete UI rebuild by triggering the chat changed event
         await eventSource.emit(event_types.CHAT_CHANGED, -1);
 
-        // Additional DOM cleanup
+        // Save the chat to persist the changes
+        await context.saveChat();
+
+        // Additional DOM cleanup in case the above doesn't work
         setTimeout(() => {
+            // Find and remove any remaining "Generating image" messages from the DOM
             $('#chat .mes').each(function () {
                 const messageText = $(this).find('.mes_text').text().trim();
                 if (messageText === 'Generating image…' || messageText === 'Generating image...') {
-                    $(this).remove();
+                    $(this).closest('.mes').remove();
                 }
             });
-        }, 100);
+        }, 50);
 
     } catch (error) {
         console.error('Error removing generating slice:', error);
@@ -153,7 +186,8 @@ async function generateImage() {
     let imagePrompt;
     try {
         imagePrompt = await generateQuietPrompt(llmPrompt);
-    } catch {
+    } catch (error) {
+        console.error('LLM prompt generation failed:', error);
         toastr.error('Failed to generate image prompt from LLM.');
         return;
     }
@@ -164,14 +198,15 @@ async function generateImage() {
         is_system: true,
         mes: 'Generating image…',
         sendDate: Date.now(),
-        extra: { isTemporary: true },
+        extra: { isTemporary: true }, // Mark as temporary for easier identification
     };
 
     chat.push(generatingMessage);
     generatingMessageId = chat.length - 1;
 
-    // Trigger message display
+    // Render the generating message
     await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
+    context.addOneMessage(generatingMessage);
     await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
 
     try {
@@ -225,45 +260,44 @@ async function generateImage() {
             imageSrc = `${settings.url}/${imageSrc}`;
         }
 
-        // Download image and convert to base64 for better compatibility
-        const base64Image = await downloadImageAsBase64(imageSrc);
-        const finalImageSrc = base64Image || imageSrc;
+        // Download and save the image to SillyTavern
+        console.log('Downloading and saving image:', imageSrc);
+        const savedImagePath = await saveImageToSillyTavern(imageSrc);
+        console.log('Image saved as:', savedImagePath);
 
-        // Remove the generating message FIRST
+        // Remove the generating message BEFORE adding the final image
         await removeGeneratingSlice(context);
 
-        // Small delay to ensure DOM cleanup
-        await new Promise(resolve => setTimeout(resolve, 150));
-
-        // Create the image message with proper SillyTavern format
+        // Add the final image message using SillyTavern's expected format
         const imageMessage = {
             name: context.name2 || 'System',
             is_system: true,
-            mes: `<img src="${finalImageSrc}" alt="Generated image" style="max-width: 100%; height: auto; border-radius: 8px;">`,
+            mes: `<img src="${savedImagePath}" alt="Generated image" style="max-width: 100%; height: auto;">`,
             sendDate: Date.now(),
             extra: {
-                image: finalImageSrc,
-                type: 'swarm_generated_image',
-                swarm_prompt: imagePrompt
+                image: savedImagePath,
+                title: 'Generated Image',
+                // Add metadata for better compatibility
+                gen_id: Date.now(),
+                gen_metadata: {
+                    prompt: prompt,
+                    source: 'swarmui'
+                }
             },
         };
 
-        // Add to chat array
         chat.push(imageMessage);
         const imageMessageId = chat.length - 1;
 
-        // Trigger events for proper rendering
+        // Emit events in the correct order
         await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
+        context.addOneMessage(imageMessage);
         await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
 
-        // Save chat
+        // Save the chat after adding the message
         await context.saveChat();
 
-        // Force a final UI refresh
-        setTimeout(async () => {
-            await eventSource.emit(event_types.CHAT_CHANGED, -1);
-        }, 200);
-
+        console.log('Image generation completed successfully');
         toastr.success('Image generated successfully!');
 
     } catch (error) {
