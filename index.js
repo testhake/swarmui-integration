@@ -2,8 +2,8 @@
 import { getContext, extension_settings } from '../../../extensions.js';
 import { generateQuietPrompt } from '../../../../script.js';
 import { debounce_timeout } from '../../../constants.js';
-import { saveBase64AsFile, getBase64Async } from '../../../utils.js';
-import { getMessageTimeStamp, humanizedDateTime } from '../../../RossAscends-mods.js';
+import { saveBase64AsFile, getBase64Async } from '../../utils.js';
+import { getMessageTimeStamp, humanizedDateTime } from '../../RossAscends-mods.js';
 
 const MODULE_NAME = 'swarmui-integration';
 const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
@@ -84,27 +84,83 @@ async function getSavedT2IParams(sessionId) {
 }
 
 /**
- * Download image from SwarmUI and convert to base64
+ * Download image from URL and convert to base64
  */
 async function downloadImageAsBase64(imageUrl) {
     try {
+        console.log('Downloading image from URL:', imageUrl);
+
+        // Try direct fetch first with proper headers
         const response = await fetch(imageUrl, {
-            credentials: settings.use_auth ? 'include' : 'omit',
+            method: 'GET',
+            headers: {
+                'Accept': 'image/*',
+                ...(settings.use_auth && getRequestHeaders())
+            },
+            mode: 'cors',
+            credentials: settings.use_auth ? 'include' : 'same-origin',
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to download image: ${response.status}`);
+            throw new Error(`Failed to download image: HTTP ${response.status} - ${response.statusText}`);
         }
 
         const blob = await response.blob();
+        console.log('Downloaded blob:', blob.type, blob.size, 'bytes');
+
         const base64 = await getBase64Async(blob);
+        console.log('Converted to base64, length:', base64.length);
 
         // Remove data URL prefix to get just the base64 string
-        return base64.replace(/^data:image\/[^;]+;base64,/, '');
+        const base64Data = base64.replace(/^data:image\/[^;]+;base64,/, '');
+        return base64Data;
 
     } catch (error) {
         console.error('Error downloading image:', error);
-        throw error;
+
+        // Try alternative approach with a proxy-like method
+        return await downloadImageViaProxy(imageUrl);
+    }
+}
+
+/**
+ * Alternative method to download image using a different approach
+ */
+async function downloadImageViaProxy(imageUrl) {
+    try {
+        console.log('Trying proxy method for:', imageUrl);
+
+        // Create an Image object to load the image
+        const img = new Image();
+        img.crossOrigin = 'anonymous'; // Enable CORS
+
+        const imageLoadPromise = new Promise((resolve, reject) => {
+            img.onload = () => {
+                try {
+                    // Create canvas and draw image
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+
+                    // Get base64 data
+                    const dataURL = canvas.toDataURL('image/png');
+                    const base64Data = dataURL.replace(/^data:image\/[^;]+;base64,/, '');
+                    resolve(base64Data);
+                } catch (canvasError) {
+                    reject(canvasError);
+                }
+            };
+            img.onerror = (error) => reject(new Error('Failed to load image: ' + error));
+        });
+
+        img.src = imageUrl;
+        return await imageLoadPromise;
+
+    } catch (error) {
+        console.error('Error in proxy method:', error);
+        throw new Error(`All image download methods failed. Last error: ${error.message}`);
     }
 }
 
@@ -276,18 +332,25 @@ async function generateImage() {
             imageSrc = `${settings.url}/${imageSrc}`;
         }
 
-        // Download and convert to base64
-        console.log('Downloading image from:', imageSrc);
-        const base64Data = await downloadImageAsBase64(imageSrc);
-
         // Determine character name for file naming
         const characterName = context.groupId
             ? context.groups[Object.keys(context.groups).filter(x => context.groups[x].id === context.groupId)[0]]?.id?.toString()
             : context.characters[context.characterId]?.name || 'Assistant';
 
-        // Save the image file using SillyTavern's method
-        const filename = `${characterName}_${humanizedDateTime()}`;
-        const savedImagePath = await saveBase64AsFile(base64Data, characterName, filename, 'png');
+        let savedImagePath;
+
+        try {
+            // Try to download and save the image
+            console.log('Downloading image from:', imageSrc);
+            const base64Data = await downloadImageAsBase64(imageSrc);
+            const filename = `${characterName}_${humanizedDateTime()}`;
+            savedImagePath = await saveBase64AsFile(base64Data, characterName, filename, 'png');
+            console.log('Image saved to:', savedImagePath);
+        } catch (downloadError) {
+            console.warn('Failed to download and save image, using direct URL:', downloadError);
+            // Fallback to using the direct URL
+            savedImagePath = imageSrc;
+        }
 
         // Remove the generating message BEFORE adding the final image
         await removeGeneratingSlice(context);
