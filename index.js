@@ -81,7 +81,32 @@ async function getSavedT2IParams(sessionId) {
     return {};
 }
 
-/** Safely remove the "Generating image..." slice and force the chat UI to refresh. */
+/** Download and convert image to base64 data URL */
+async function downloadImageAsBase64(imageUrl) {
+    try {
+        const response = await fetch(imageUrl, {
+            credentials: settings.use_auth ? 'include' : 'omit',
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch image: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    } catch (error) {
+        console.error('Error downloading image:', error);
+        return null;
+    }
+}
+
+/** Safely remove the "Generating image..." message */
 async function removeGeneratingSlice(context) {
     if (generatingMessageId === null) return;
 
@@ -93,27 +118,21 @@ async function removeGeneratingSlice(context) {
         // Remove from the chat array
         context.chat.splice(messageIdToRemove, 1);
 
-        // Force a complete UI rebuild by triggering the chat changed event
+        // Force UI refresh
         await eventSource.emit(event_types.CHAT_CHANGED, -1);
 
-        // Save the chat to persist the changes
-        await context.saveChat();
-
-        // Additional DOM cleanup in case the above doesn't work
+        // Additional DOM cleanup
         setTimeout(() => {
-            // Find and remove any remaining "Generating image" messages from the DOM
             $('#chat .mes').each(function () {
                 const messageText = $(this).find('.mes_text').text().trim();
                 if (messageText === 'Generating image…' || messageText === 'Generating image...') {
-                    $(this).closest('.mes').remove();
+                    $(this).remove();
                 }
             });
-        }, 50);
+        }, 100);
 
     } catch (error) {
         console.error('Error removing generating slice:', error);
-        // Fallback: force a page refresh if all else fails
-        // location.reload();
     }
 }
 
@@ -145,15 +164,14 @@ async function generateImage() {
         is_system: true,
         mes: 'Generating image…',
         sendDate: Date.now(),
-        extra: { isTemporary: true }, // Mark as temporary for easier identification
+        extra: { isTemporary: true },
     };
 
     chat.push(generatingMessage);
     generatingMessageId = chat.length - 1;
 
-    // Render the generating message
+    // Trigger message display
     await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
-    context.addOneMessage(generatingMessage);
     await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
 
     try {
@@ -207,29 +225,50 @@ async function generateImage() {
             imageSrc = `${settings.url}/${imageSrc}`;
         }
 
-        // Remove the generating message BEFORE adding the final image
+        // Download image and convert to base64 for better compatibility
+        const base64Image = await downloadImageAsBase64(imageSrc);
+        const finalImageSrc = base64Image || imageSrc;
+
+        // Remove the generating message FIRST
         await removeGeneratingSlice(context);
 
-        // Add the final image message
+        // Small delay to ensure DOM cleanup
+        await new Promise(resolve => setTimeout(resolve, 150));
+
+        // Create the image message with proper SillyTavern format
         const imageMessage = {
             name: context.name2 || 'System',
             is_system: true,
-            mes: 'Generated image:',
+            mes: `<img src="${finalImageSrc}" alt="Generated image" style="max-width: 100%; height: auto; border-radius: 8px;">`,
             sendDate: Date.now(),
-            extra: { image: imageSrc },
+            extra: {
+                image: finalImageSrc,
+                type: 'swarm_generated_image',
+                swarm_prompt: imagePrompt
+            },
         };
 
+        // Add to chat array
         chat.push(imageMessage);
         const imageMessageId = chat.length - 1;
 
+        // Trigger events for proper rendering
         await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
-        context.addOneMessage(imageMessage);
         await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
+
+        // Save chat
         await context.saveChat();
+
+        // Force a final UI refresh
+        setTimeout(async () => {
+            await eventSource.emit(event_types.CHAT_CHANGED, -1);
+        }, 200);
+
+        toastr.success('Image generated successfully!');
 
     } catch (error) {
         console.error('Generation error:', error);
-        toastr.error('Failed to generate image.');
+        toastr.error(`Failed to generate image: ${error.message}`);
         await removeGeneratingSlice(getContext());
     }
 }
