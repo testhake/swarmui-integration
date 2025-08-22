@@ -262,7 +262,9 @@ async function generateImage() {
         // Build the prompt
         let prompt = imagePrompt;
         if (settings.append_prompt && rawInput.prompt) {
-            prompt = `${rawInput.prompt}, ${imagePrompt}`;
+            // Remove all * from rawInput.prompt before appending
+            const cleanedPrompt = rawInput.prompt.replace(/\*/g, "");
+            prompt = `${cleanedPrompt}, ${imagePrompt}`;
         }
         rawInput.prompt = prompt;
 
