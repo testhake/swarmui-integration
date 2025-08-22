@@ -1,18 +1,9 @@
-﻿// scripts/extensions/third-party/swarmui-integration/index.js
-
-import {
-    eventSource,
-    event_types,
-    saveSettingsDebounced,
-    getRequestHeaders,
-    substituteParams,
-    updateMessageBlock,
-} from '../../../../script.js';
+﻿import { eventSource, event_types, saveSettingsDebounced, getRequestHeaders, substituteParams } from '../../../../script.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import { generateQuietPrompt } from '../../../../script.js';
 import { debounce_timeout } from '../../../constants.js';
-import { getCurrentEntityId } from '../../../chats.js';
-import { saveBase64AsFile } from '../../../utils.js';
+import { saveBase64AsFile, getBase64Async, getCharaFilename } from '../../../utils.js';
+import { humanizedDateTime } from '../../../RossAscends-mods.js';
 
 const MODULE_NAME = 'swarmui-integration';
 const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
@@ -20,19 +11,14 @@ const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
 let settings = {};
 let generatingMessageId = null;
 
-/** ----------------------------- Settings UI ----------------------------- */
-
 async function loadSettings() {
     if (!extension_settings[MODULE_NAME]) {
         extension_settings[MODULE_NAME] = {};
     }
     settings = extension_settings[MODULE_NAME];
-
     $('#swarm_url').val(settings.url || 'http://localhost:7801').trigger('input');
     $('#swarm_session_id').val(settings.session_id || '').trigger('input');
-    $('#swarm_llm_prompt')
-        .val(settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}')
-        .trigger('input');
+    $('#swarm_llm_prompt').val(settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}').trigger('input');
     $('#swarm_append_prompt').prop('checked', !!settings.append_prompt).trigger('input');
     $('#swarm_use_auth').prop('checked', !!settings.use_auth).trigger('input');
 }
@@ -48,12 +34,9 @@ function onInput(event) {
     saveSettingsDebounced();
 }
 
-/** ------------------------- SwarmUI helpers ----------------------------- */
-
 async function getSessionId() {
     if (settings.session_id) return settings.session_id;
-
-    const url = `${trimSlash(settings.url)}/API/GetNewSession`;
+    const url = `${settings.url}/API/GetNewSession`;
     const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -74,7 +57,7 @@ async function getSessionId() {
  * Handles the nested shape: { rawInput: { rawInput: {...}, *saved*at: "..." } }
  */
 async function getSavedT2IParams(sessionId) {
-    const url = `${trimSlash(settings.url)}/API/GetSavedT2IParams?skip_zrok_interstitial=1`;
+    const url = `${settings.url}/API/GetSavedT2IParams?skip_zrok_interstitial=1`;
     const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -100,126 +83,68 @@ async function getSavedT2IParams(sessionId) {
     return {};
 }
 
-/** ------------------------- Image pipeline ------------------------------ */
-
 /**
- * Normalize various API return shapes into a usable reference:
- * - data:... (data URL)
- * - http(s) URL
- * - relative path -> resolved against settings.url
- * - object with .url or .path
+ * Download image from URL and convert to base64
  */
-function normalizeImageRef(img) {
-    let ref = img;
-
-    if (img && typeof img === 'object') {
-        ref = img.url || img.path || img.href || '';
-    }
-
-    if (typeof ref !== 'string') return '';
-
-    // If relative path (no scheme/host and not data:)
-    if (!ref.startsWith('http') && !ref.startsWith('data:')) {
-        ref = `${trimSlash(settings.url)}/${stripLeadingSlash(ref)}`;
-    }
-    return ref;
-}
-
-/**
- * Attempts to fetch a URL and return a Data URL string.
- * If URL is already a data URL, returns it as-is.
- * If fetch is blocked by CORS or fails, returns null so the caller can fall back to external URL attachment.
- */
-async function toDataURLFromRef(imageUrl) {
+async function downloadImageAsBase64(imageUrl) {
     try {
-        if (imageUrl.startsWith('data:')) return imageUrl;
-
-        // Try to download the image bytes
-        const response = await fetch(addZrokBypass(imageUrl), {
+        const response = await fetch(imageUrl, {
             method: 'GET',
             headers: {
                 'skip_zrok_interstitial': '1',
-                ...getRequestHeaders(),
             },
-            credentials: settings.use_auth ? 'include' : 'omit',
         });
 
-        if (!response.ok) throw new Error(`Download HTTP ${response.status}`);
+        if (!response.ok) {
+            throw new Error(`Failed to download image: ${response.status}`);
+        }
 
-        const contentType = response.headers.get('Content-Type') || 'image/png';
-        const arrayBuffer = await response.arrayBuffer();
-        const base64 = arrayBufferToBase64(arrayBuffer);
-        return `data:${contentType};base64,${base64}`;
-    } catch (err) {
-        console.warn('[swarmui] Download failed (likely CORS). Falling back to external URL attachment.', err);
-        return null;
+        const blob = await response.blob();
+        const base64 = await getBase64Async(blob);
+
+        // Remove the data URL prefix to get just the base64 string
+        return base64.replace(/^data:image\/[a-z]+;base64,/, '');
+    } catch (error) {
+        console.error('Error downloading image:', error);
+        throw error;
     }
 }
 
-/** Save a data URL into the current character’s folder and return a local path. */
-async function saveImageToCharacter(dataUrl, preferredExt = 'png') {
-    const characterId = getCurrentEntityId?.() ?? getContext()?.characterId ?? null;
-    const now = new Date();
-    const stamp = now.toISOString().replace(/[:.]/g, '-'); // safe-ish
-    const ext = getExtFromDataUrl(dataUrl) || preferredExt || 'png';
-    const filename = `swarmui-${stamp}.${ext}`;
+/** Safely remove the "Generating image..." slice and force the chat UI to refresh. */
+async function removeGeneratingSlice(context) {
+    if (generatingMessageId === null) return;
 
-    // saveBase64AsFile returns a relative path inside the ST public dir (e.g. /user/images/char-xxx/file.png)
-    const savedPath = await saveBase64AsFile(dataUrl, { filename, characterId });
+    try {
+        // Store the ID before clearing it
+        const messageIdToRemove = generatingMessageId;
+        generatingMessageId = null;
 
-    return { path: savedPath, name: filename, mime: getMimeFromDataUrl(dataUrl) || `image/${ext}` };
+        // Remove from the chat array
+        context.chat.splice(messageIdToRemove, 1);
+
+        // Force a complete UI rebuild by triggering the chat changed event
+        await eventSource.emit(event_types.CHAT_CHANGED, -1);
+
+        // Save the chat to persist the changes
+        await context.saveChat();
+
+        // Additional DOM cleanup in case the above doesn't work
+        setTimeout(() => {
+            // Find and remove any remaining "Generating image" messages from the DOM
+            $('#chat .mes').each(function () {
+                const messageText = $(this).find('.mes_text').text().trim();
+                if (messageText === 'Generating image…' || messageText === 'Generating image...') {
+                    $(this).closest('.mes').remove();
+                }
+            });
+        }, 50);
+
+    } catch (error) {
+        console.error('Error removing generating slice:', error);
+        // Fallback: force a page refresh if all else fails
+        // location.reload();
+    }
 }
-
-/** ----------------------- Chat message helpers -------------------------- */
-
-/** Insert a transient "generating…" message and return its id */
-function insertGeneratingMessage(context) {
-    const generatingMessage = {
-        name: context.name2 || 'System',
-        is_system: true,
-        mes: 'Generating image…',
-        sendDate: Date.now(),
-    };
-
-    // Push to chat model
-    context.chat.push(generatingMessage);
-    const messageId = context.chat.length - 1;
-
-    // Render it
-    eventSource.emit(event_types.MESSAGE_RECEIVED, messageId);
-    context.addOneMessage(generatingMessage);
-    eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, messageId);
-
-    return messageId;
-}
-
-/** Safely replace the generating message with final content + attachments */
-async function finalizeImageMessage(messageId, text, attachments) {
-    const context = getContext();
-    const msg = context.chat[messageId];
-    if (!msg) return;
-
-    msg.mes = text;
-    // Use ST’s standard attachments field so the renderer shows the image inline
-    msg.attachments = attachments;
-
-    // Re-render this block and persist
-    updateMessageBlock?.(messageId, msg);
-    await context.saveChat();
-}
-
-/** On error, replace placeholder with a failure notice */
-async function failImageMessage(messageId, errText = 'Failed to generate image.') {
-    const context = getContext();
-    const msg = context.chat[messageId];
-    if (!msg) return;
-    msg.mes = errText;
-    msg.attachments = [];
-    updateMessageBlock?.(messageId, msg);
-    await context.saveChat();
-}
-
-/** ----------------------------- Main flow ------------------------------- */
 
 async function generateImage() {
     const context = getContext();
@@ -230,11 +155,11 @@ async function generateImage() {
         return;
     }
 
-    // Build a prompt for your LLM that constructs an image prompt
-    const lastMessage = String(chat[chat.length - 1].mes || '');
+    // Use the last message as the scene description
+    const lastMessage = chat[chat.length - 1].mes || '';
     const llmPrompt = substituteParams(settings.llm_prompt || '').replace('{description}', lastMessage);
 
-    // 1) Ask the LLM to turn scene text into an image prompt
+    // Generate the actual image prompt from the LLM
     let imagePrompt;
     try {
         imagePrompt = await generateQuietPrompt(llmPrompt);
@@ -243,29 +168,43 @@ async function generateImage() {
         return;
     }
 
-    // 2) Insert a placeholder message ("Generating…")
-    generatingMessageId = insertGeneratingMessage(context);
+    // Insert a transient "Generating..." message
+    const generatingMessage = {
+        name: context.name2 || 'System',
+        is_system: true,
+        mes: 'Generating image…',
+        sendDate: Date.now(),
+        extra: { isTemporary: true }, // Mark as temporary for easier identification
+    };
+
+    chat.push(generatingMessage);
+    generatingMessageId = chat.length - 1;
+
+    // Render the generating message
+    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
+    context.addOneMessage(generatingMessage);
+    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
 
     try {
-        // 3) Prepare SwarmUI params
         const sessionId = await getSessionId();
         const savedParams = await getSavedT2IParams(sessionId);
         let rawInput = { ...savedParams };
 
+        // Build the prompt
         let prompt = imagePrompt;
         if (settings.append_prompt && rawInput.prompt) {
             prompt = `${rawInput.prompt}, ${imagePrompt}`;
         }
         rawInput.prompt = prompt;
 
-        const apiUrl = `${trimSlash(settings.url)}/API/GenerateText2Image?skip_zrok_interstitial=1`;
+        // Generate the image
+        const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
         const requestBody = {
             session_id: sessionId,
             images: rawInput.images ?? 1,
             ...rawInput,
         };
 
-        // 4) Call SwarmUI
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
@@ -291,118 +230,65 @@ async function generateImage() {
 
         if (!data?.images?.length) throw new Error('No images returned from API');
 
-        // 5) Normalize -> absolute URL or data URL
-        const firstRef = normalizeImageRef(data.images[0]);
-        if (!firstRef) throw new Error('Invalid image reference from API');
-
-        // 6) Try to download and save into the character folder
-        let dataUrl = await toDataURLFromRef(firstRef);
-
-        // If CORS prevented downloading, we will fall back to an external URL attachment
-        let attachments = [];
-        if (dataUrl) {
-            // Save locally (character folder) so it persists in the chat history
-            const saved = await saveImageToCharacter(dataUrl, guessExtFromUrl(firstRef));
-            attachments.push({
-                type: 'image',
-                path: saved.path,   // local path inside ST's public dir
-                name: saved.name,
-                mime: saved.mime,
-            });
-        } else {
-            // Fallback: attach remote URL (subject to external media policy)
-            attachments.push({
-                type: 'image',
-                url: firstRef,
-                name: fileNameFromUrl(firstRef) || 'image.png',
-            });
+        // Normalize image url
+        let imageUrl = data.images[0];
+        if (typeof imageUrl === 'string' && !imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
+            imageUrl = `${settings.url}/${imageUrl}`;
         }
 
-        // 7) Replace the placeholder with the final message + attachment
-        await finalizeImageMessage(generatingMessageId, 'Generated image:', attachments);
-        generatingMessageId = null;
+        // Remove the generating message BEFORE adding the final image
+        await removeGeneratingSlice(context);
+
+        // Download the image and convert to base64
+        const base64Image = await downloadImageAsBase64(imageUrl);
+
+        // Get character name for filename
+        const characterName = context.characterId !== undefined ?
+            getCharaFilename(context.characterId) : 'unknown';
+
+        // Save the image to SillyTavern's file system
+        const filename = `swarm_${characterName}_${humanizedDateTime()}`;
+        const savedImagePath = await saveBase64AsFile(base64Image, characterName, filename, 'png');
+
+        // Add the final image message with the saved image path
+        const imageMessage = {
+            name: context.name2 || 'System',
+            is_system: true,
+            mes: `Generated image: ${imagePrompt}`,
+            sendDate: Date.now(),
+            extra: {
+                image: savedImagePath,
+                title: imagePrompt
+            },
+        };
+
+        chat.push(imageMessage);
+        const imageMessageId = chat.length - 1;
+
+        // Emit events to properly render the message with image
+        await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
+        context.addOneMessage(imageMessage);
+        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
+        await context.saveChat();
+
+        // Success notification
+        toastr.success('Image generated successfully!');
+
     } catch (error) {
-        console.error('[swarmui] Generation error:', error);
-        toastr.error('Failed to generate image.');
-        await failImageMessage(generatingMessageId);
-        generatingMessageId = null;
+        console.error('Generation error:', error);
+        toastr.error(`Failed to generate image: ${error.message}`);
+        await removeGeneratingSlice(getContext());
     }
 }
-
-/** ------------------------------- Utils -------------------------------- */
-
-function trimSlash(s) {
-    return String(s || '').replace(/\/+$/, '');
-}
-function stripLeadingSlash(s) {
-    return String(s || '').replace(/^\/+/, '');
-}
-function addZrokBypass(url) {
-    try {
-        const u = new URL(url);
-        if (!u.searchParams.has('skip_zrok_interstitial')) {
-            u.searchParams.set('skip_zrok_interstitial', '1');
-        }
-        return u.toString();
-    } catch {
-        return url;
-    }
-}
-function arrayBufferToBase64(buffer) {
-    let binary = '';
-    const bytes = new Uint8Array(buffer);
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
-    return btoa(binary);
-}
-function getExtFromDataUrl(dataUrl) {
-    const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,/.exec(dataUrl || '');
-    if (!m) return '';
-    const mime = m[1];
-    const ext = mime.split('/')[1].toLowerCase();
-    // common normalizations
-    if (ext.includes('jpeg')) return 'jpg';
-    if (ext.includes('svg')) return 'svg';
-    if (ext.includes('webp')) return 'webp';
-    if (ext.includes('png')) return 'png';
-    return ext || '';
-}
-function getMimeFromDataUrl(dataUrl) {
-    const m = /^data:([^;]+);base64,/.exec(dataUrl || '');
-    return m ? m[1] : '';
-}
-function guessExtFromUrl(u) {
-    try {
-        const p = new URL(u).pathname.toLowerCase();
-        const ext = (p.split('.').pop() || '').split('?')[0];
-        if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(ext)) {
-            return ext === 'jpeg' ? 'jpg' : ext;
-        }
-        return 'png';
-    } catch {
-        return 'png';
-    }
-}
-function fileNameFromUrl(u) {
-    try {
-        const p = new URL(u).pathname;
-        const base = p.split('/').filter(Boolean).pop() || '';
-        return base || '';
-    } catch {
-        return '';
-    }
-}
-
-/** ------------------------------ Bootstrapping -------------------------- */
 
 jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
-    $('#extensions_settings').append(settingsHtml);
-    $('#swarm_settings input, #swarm_settings textarea').on('input', onInput);
+    $("#extensions_settings").append(settingsHtml);
+    $("#swarm_settings input, #swarm_settings textarea").on("input", onInput);
 
     const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
-    $('#send_but').before(buttonHtml);
-    $('#swarm_generate_button').on('click', generateImage);
+    $("#send_but").before(buttonHtml);
+    $("#swarm_generate_button").on("click", generateImage);
 
     await loadSettings();
 });
