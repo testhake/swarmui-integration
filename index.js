@@ -10,12 +10,17 @@ const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
 
 let settings = {};
 let generatingMessageId = null;
+let cachedSessionId = null; // Cache the session ID
 
 async function loadSettings() {
     if (!extension_settings[MODULE_NAME]) {
         extension_settings[MODULE_NAME] = {};
     }
     settings = extension_settings[MODULE_NAME];
+
+    // Load cached session ID from settings
+    cachedSessionId = settings.cached_session_id || null;
+
     $('#swarm_url').val(settings.url || 'http://localhost:7801').trigger('input');
     $('#swarm_session_id').val(settings.session_id || '').trigger('input');
     $('#swarm_llm_prompt').val(settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}').trigger('input');
@@ -35,13 +40,42 @@ function onInput(event) {
 }
 
 /**
- * Test if a session ID is still valid by making a lightweight API call
+ * Creates a new session and caches it
+ */
+async function createNewSession() {
+    const url = `${settings.url}/API/GetNewSession`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'skip_zrok_interstitial': '1',
+            ...getRequestHeaders(),
+        },
+        body: JSON.stringify({}),
+        credentials: settings.use_auth ? 'include' : 'omit',
+    });
+
+    if (!response.ok) throw new Error('Failed to get session ID');
+
+    const data = await response.json();
+    const sessionId = data.session_id;
+
+    // Cache the session ID in memory and settings
+    cachedSessionId = sessionId;
+    settings.cached_session_id = sessionId;
+    extension_settings[MODULE_NAME] = settings;
+    saveSettingsDebounced();
+
+    return sessionId;
+}
+
+/**
+ * Tests if a session ID is still valid by making a lightweight API call
  */
 async function isSessionValid(sessionId) {
     if (!sessionId) return false;
 
     try {
-        // Use GetSavedT2IParams as a test call since it's lightweight and requires a valid session
         const url = `${settings.url}/API/GetSavedT2IParams?skip_zrok_interstitial=1`;
         const response = await fetch(url, {
             method: 'POST',
@@ -55,145 +89,71 @@ async function isSessionValid(sessionId) {
             credentials: settings.use_auth ? 'include' : 'omit',
         });
 
-        // If we get a 200 response, the session is valid
-        // Even if there are no saved params, a valid session will return success
+        // If we get a successful response, the session is valid
         return response.ok;
-
     } catch (error) {
-        console.error('Session validation error:', error);
+        console.warn('Session validation failed:', error);
         return false;
     }
 }
 
-async function getSessionId(forceNew = false) {
-    // If forcing a new session, clear the current one
-    if (forceNew) {
-        settings.session_id = '';
-    }
-
-    // If we have a session ID, test if it's still valid
-    if (settings.session_id) {
-        if (await isSessionValid(settings.session_id)) {
-            return settings.session_id;
-        } else {
-            // Session is invalid, clear it and get a new one
-            console.log('Stored session ID is invalid, getting new session...');
-            settings.session_id = '';
-        }
-    }
-
-    // Create a new session
-    console.log('Creating new SwarmUI session...');
-    const url = `${settings.url}/API/GetNewSession`;
-
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'skip_zrok_interstitial': '1',
-                ...getRequestHeaders(),
-            },
-            body: JSON.stringify({}),
-            credentials: settings.use_auth ? 'include' : 'omit',
-        });
-
-        if (!response.ok) {
-            throw new Error(`Failed to get session ID: HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        if (!data.session_id) {
-            throw new Error('No session ID returned from server');
-        }
-
-        // Store the new session ID in settings and save
-        settings.session_id = data.session_id;
-        extension_settings[MODULE_NAME] = settings;
-        saveSettingsDebounced();
-
-        // Update the UI field
-        $('#swarm_session_id').val(settings.session_id);
-
-        console.log(`New SwarmUI session created: ${data.session_id}`);
-        return data.session_id;
-
-    } catch (error) {
-        console.error('Error creating new session:', error);
-        throw new Error(`Failed to get session ID: ${error.message}`);
-    }
-}
-
 /**
- * Clear the current session and force getting a new one on next use
+ * Gets a valid session ID, using cached one if available, or creating new one if needed
  */
-function clearSession() {
-    console.log('Clearing SwarmUI session...');
-    settings.session_id = '';
-    extension_settings[MODULE_NAME] = settings;
-    saveSettingsDebounced();
-    $('#swarm_session_id').val('');
+async function getSessionId() {
+    // If user has manually set a session_id in settings, prioritize that
+    if (settings.session_id) return settings.session_id;
+
+    // Check if we have a cached session and if it's still valid
+    if (cachedSessionId && await isSessionValid(cachedSessionId)) {
+        return cachedSessionId;
+    }
+
+    // Cache is invalid or doesn't exist, create a new session
+    console.log('Creating new SwarmUI session...');
+    return await createNewSession();
 }
 
 /**
  * SwarmUI: Get the last saved T2I params for this user/session.
  * Handles the nested shape: { rawInput: { rawInput: {...}, *saved*at: "..." } }
- * Automatically retries with a new session if the current one fails.
  */
-async function getSavedT2IParams(sessionId, retryCount = 0) {
-    const maxRetries = 1; // Only retry once to avoid infinite loops
-
+async function getSavedT2IParams(sessionId) {
     const url = `${settings.url}/API/GetSavedT2IParams?skip_zrok_interstitial=1`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'skip_zrok_interstitial': '1',
+            ...getRequestHeaders(),
+        },
+        body: JSON.stringify({ session_id: sessionId }),
+        credentials: settings.use_auth ? 'include' : 'omit',
+    });
 
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'skip_zrok_interstitial': '1',
-                ...getRequestHeaders(),
-            },
-            body: JSON.stringify({ session_id: sessionId }),
-            credentials: settings.use_auth ? 'include' : 'omit',
-        });
-
-        if (!response.ok) {
-            // If session is invalid and we haven't retried yet, get a new session and try again
-            if ((response.status === 401 || response.status === 403 || response.status === 400) && retryCount < maxRetries) {
-                console.log('Session appears invalid, retrying with new session...');
-                const newSessionId = await getSessionId(true); // Force new session
-                return await getSavedT2IParams(newSessionId, retryCount + 1);
-            }
-            throw new Error(`Failed to get saved T2I params: HTTP ${response.status}`);
+    if (!response.ok) {
+        // If this fails, the session might be invalid - clear cache
+        if (response.status === 401 || response.status === 403) {
+            cachedSessionId = null;
+            delete settings.cached_session_id;
+            extension_settings[MODULE_NAME] = settings;
+            saveSettingsDebounced();
         }
-
-        const data = await response.json();
-
-        if (data?.error === 'no_saved_params') return {};
-
-        const nested = data?.rawInput;
-        if (nested && typeof nested === 'object') {
-            if (nested.rawInput && typeof nested.rawInput === 'object') {
-                return { ...nested.rawInput };
-            }
-            return { ...nested };
-        }
-        return {};
-
-    } catch (error) {
-        // If we get a network error or other issue and haven't retried yet, try with a new session
-        if (retryCount < maxRetries) {
-            console.log('Error getting saved params, retrying with new session...', error.message);
-            const newSessionId = await getSessionId(true); // Force new session
-            return await getSavedT2IParams(newSessionId, retryCount + 1);
-        }
-
-        // If retry also failed, log and return empty params instead of throwing
-        console.error('Failed to get saved T2I params after retry:', error);
-        return {}; // Return empty params so image generation can continue
+        throw new Error('Failed to get saved T2I params');
     }
+
+    const data = await response.json();
+
+    if (data?.error === 'no_saved_params') return {};
+    const nested = data?.rawInput;
+    if (nested && typeof nested === 'object') {
+        if (nested.rawInput && typeof nested.rawInput === 'object') {
+            return { ...nested.rawInput };
+        }
+        return { ...nested };
+    }
+    return {};
 }
 
 /**
@@ -220,62 +180,6 @@ async function downloadImageAsBase64(imageUrl) {
     } catch (error) {
         console.error('Error downloading image:', error);
         throw error;
-    }
-}
-
-/**
- * Generate image with automatic session retry logic
- */
-async function generateImageWithSession(requestBody, sessionId, retryCount = 0) {
-    const maxRetries = 1;
-
-    const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
-
-    try {
-        const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'skip_zrok_interstitial': '1',
-                ...getRequestHeaders(),
-            },
-            body: JSON.stringify({ ...requestBody, session_id: sessionId }),
-            credentials: settings.use_auth ? 'include' : 'omit',
-        });
-
-        if (!response.ok) {
-            // If session is invalid and we haven't retried yet, get a new session and try again
-            if ((response.status === 401 || response.status === 403 || response.status === 400) && retryCount < maxRetries) {
-                console.log('Session invalid during image generation, retrying with new session...');
-                const newSessionId = await getSessionId(true); // Force new session
-                return await generateImageWithSession(requestBody, newSessionId, retryCount + 1);
-            }
-            throw new Error(`HTTP ${response.status}`);
-        }
-
-        const responseText = await response.text();
-        let data;
-        try {
-            data = JSON.parse(responseText);
-        } catch {
-            console.error('Invalid JSON response:', responseText);
-            throw new Error('Invalid JSON response from server');
-        }
-
-        if (!data?.images?.length) throw new Error('No images returned from API');
-
-        return data;
-
-    } catch (error) {
-        // If we get a network error or other issue and haven't retried yet, try with a new session
-        if (retryCount < maxRetries && (error.message.includes('Failed to fetch') || error.message.includes('NetworkError'))) {
-            console.log('Network error during image generation, retrying with new session...', error.message);
-            const newSessionId = await getSessionId(true); // Force new session
-            return await generateImageWithSession(requestBody, newSessionId, retryCount + 1);
-        }
-
-        throw error; // Re-throw if we can't retry
     }
 }
 
@@ -356,7 +260,32 @@ async function generateImage() {
 
     try {
         const sessionId = await getSessionId();
-        const savedParams = await getSavedT2IParams(sessionId);
+
+        let savedParams;
+        let retryCount = 0;
+        const maxRetries = 2;
+
+        // Try to get saved params, with retry logic for session issues
+        while (retryCount < maxRetries) {
+            try {
+                savedParams = await getSavedT2IParams(sessionId);
+                break; // Success, exit retry loop
+            } catch (error) {
+                retryCount++;
+                if (retryCount >= maxRetries) {
+                    throw error; // Give up after max retries
+                }
+
+                // If it failed, try getting a new session
+                console.warn(`getSavedT2IParams failed (attempt ${retryCount}), getting new session...`);
+                const newSessionId = await createNewSession();
+                // Update sessionId for the retry
+                if (newSessionId !== sessionId) {
+                    sessionId = newSessionId;
+                }
+            }
+        }
+
         let rawInput = { ...savedParams };
 
         // Build the prompt
@@ -366,13 +295,69 @@ async function generateImage() {
         }
         rawInput.prompt = prompt;
 
-        // Generate the image using the retry-enabled function
+        // Generate the image with retry logic
+        const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
         const requestBody = {
+            session_id: sessionId,
             images: rawInput.images ?? 1,
             ...rawInput,
         };
 
-        const data = await generateImageWithSession(requestBody, sessionId);
+        let response;
+        retryCount = 0;
+
+        while (retryCount < maxRetries) {
+            try {
+                response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'skip_zrok_interstitial': '1',
+                        ...getRequestHeaders(),
+                    },
+                    body: JSON.stringify(requestBody),
+                    credentials: settings.use_auth ? 'include' : 'omit',
+                });
+
+                if (response.ok) {
+                    break; // Success, exit retry loop
+                } else if (response.status === 401 || response.status === 403) {
+                    // Session might be invalid, try with new session
+                    retryCount++;
+                    if (retryCount >= maxRetries) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    console.warn(`Image generation failed with ${response.status} (attempt ${retryCount}), getting new session...`);
+                    const newSessionId = await createNewSession();
+                    requestBody.session_id = newSessionId;
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                retryCount++;
+                if (retryCount >= maxRetries) {
+                    throw error;
+                }
+
+                // For network errors, also try with a new session
+                console.warn(`Image generation failed (attempt ${retryCount}), getting new session...`);
+                const newSessionId = await createNewSession();
+                requestBody.session_id = newSessionId;
+            }
+        }
+
+        const responseText = await response.text();
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch {
+            console.error('Invalid JSON response:', responseText);
+            throw new Error('Invalid JSON response from server');
+        }
+
+        if (!data?.images?.length) throw new Error('No images returned from API');
 
         // Normalize image url
         let imageUrl = data.images[0];
@@ -436,6 +421,3 @@ jQuery(async () => {
 
     await loadSettings();
 });
-
-// Export clearSession function for potential manual use
-window.swarmUIClearSession = clearSession;
