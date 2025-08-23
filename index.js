@@ -1,6 +1,6 @@
 ﻿import { eventSource, event_types, saveSettingsDebounced, getRequestHeaders, substituteParams } from '../../../../script.js';
 import { getContext, extension_settings } from '../../../extensions.js';
-import { generateQuietPrompt } from '../../../../script.js';
+import { generateQuietPrompt, generateRaw } from '../../../../script.js';
 import { debounce_timeout } from '../../../constants.js';
 import { saveBase64AsFile, getBase64Async, getCharaFilename } from '../../../utils.js';
 import { humanizedDateTime } from '../../../RossAscends-mods.js';
@@ -21,6 +21,8 @@ async function loadSettings() {
     $('#swarm_session_id').val(settings.session_id || '').trigger('input');
     $('#swarm_llm_prompt').val(settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}').trigger('input');
     $('#swarm_append_prompt').prop('checked', !!settings.append_prompt).trigger('input');
+    $('#swarm_use_raw').prop('checked', !!settings.use_raw).trigger('input');
+    $('#swarm_message_count').val(settings.message_count || 5).trigger('input');
 
     // Load cached session ID if it exists in settings
     cachedSessionId = settings.cached_session_id || null;
@@ -28,8 +30,10 @@ async function loadSettings() {
 
 function onInput(event) {
     const id = event.target.id.replace('swarm_', '');
-    if (id === 'append_prompt') {
+    if (id === 'append_prompt' || id === 'use_raw') {
         settings[id] = $(event.target).prop('checked');
+    } else if (id === 'message_count') {
+        settings[id] = parseInt($(event.target).val()) || 5;
     } else {
         settings[id] = $(event.target).val();
     }
@@ -153,6 +157,33 @@ async function getSavedT2IParams(sessionId) {
 }
 
 /**
+ * Get the last X visible messages from the chat
+ */
+function getVisibleMessages(chat, count) {
+    const visibleMessages = [];
+
+    for (let i = chat.length - 1; i >= 0 && visibleMessages.length < count; i--) {
+        const message = chat[i];
+
+        // Skip messages that are invisible to AI
+        if (message.is_system ||
+            message.extra?.isTemporary ||
+            message.extra?.invisible ||
+            message.mes === 'Generating image…' ||
+            message.mes === 'Generating image...') {
+            continue;
+        }
+
+        visibleMessages.unshift({
+            name: message.name,
+            mes: message.mes
+        });
+    }
+
+    return visibleMessages;
+}
+
+/**
  * Download image from URL and convert to base64
  */
 async function downloadImageAsBase64(imageUrl) {
@@ -223,40 +254,68 @@ async function generateImage() {
         toastr.error('No chat messages to base image on.');
         return;
     }
-    console.log('Chat messages:', chat.slice(-5).map(m => ({
-        mes: m.mes.substring(0, 50),
-        is_system: m.is_system,
-        extra: m.extra
-    })));
-    // Find the last message that is visible to the AI
-    let lastVisibleMessage = '';
-    for (let i = chat.length - 1; i >= 0; i--) {
-        const message = chat[i];
 
-        // Skip messages that are invisible to AI
-        // Common flags that make messages invisible: is_system, is_user (system messages), extra.isTemporary
-        // You may need to adjust these conditions based on your specific SillyTavern setup
-        if (message.is_system ||
-            message.extra?.isTemporary ||
-            message.extra?.invisible ||
-            message.mes === 'Generating image…' ||
-            message.mes === 'Generating image...') {
-            continue;
+    let imagePrompt;
+
+    if (settings.use_raw) {
+        // Use generateRaw with multiple messages
+        const messageCount = settings.message_count || 5;
+        const visibleMessages = getVisibleMessages(chat, messageCount);
+
+        if (visibleMessages.length === 0) {
+            toastr.error('No visible messages found to base image on.');
+            return;
         }
 
-        // Found the last visible message
-        lastVisibleMessage = message.mes || '';
-        break;
-    }
-    const llmPrompt = substituteParams(settings.llm_prompt || '').replace('{description}', lastVisibleMessage);
+        // Format messages for the prompt
+        const messagesText = visibleMessages.map(msg =>
+            `${msg.name}: ${msg.mes}`
+        ).join('\n\n');
 
-    // Generate the actual image prompt from the LLM
-    let imagePrompt;
-    try {
-        imagePrompt = await generateQuietPrompt(llmPrompt);
-    } catch {
-        toastr.error('Failed to generate image prompt from LLM.');
-        return;
+        const rawPrompt = substituteParams(settings.llm_prompt || '').replace('{description}', messagesText);
+
+        try {
+            imagePrompt = await generateRaw(rawPrompt, '', false, false, '');
+        } catch (error) {
+            console.error('GenerateRaw failed:', error);
+            toastr.error('Failed to generate image prompt using generateRaw.');
+            return;
+        }
+    } else {
+        // Use the original method with generateQuietPrompt
+        // Find the last message that is visible to the AI
+        let lastVisibleMessage = '';
+        for (let i = chat.length - 1; i >= 0; i--) {
+            const message = chat[i];
+
+            // Skip messages that are invisible to AI
+            if (message.is_system ||
+                message.extra?.isTemporary ||
+                message.extra?.invisible ||
+                message.mes === 'Generating image…' ||
+                message.mes === 'Generating image...') {
+                continue;
+            }
+
+            // Found the last visible message
+            lastVisibleMessage = message.mes || '';
+            break;
+        }
+
+        if (!lastVisibleMessage) {
+            toastr.error('No visible messages found to base image on.');
+            return;
+        }
+
+        const llmPrompt = substituteParams(settings.llm_prompt || '').replace('{description}', lastVisibleMessage);
+
+        try {
+            imagePrompt = await generateQuietPrompt(llmPrompt);
+        } catch (error) {
+            console.error('GenerateQuietPrompt failed:', error);
+            toastr.error('Failed to generate image prompt from LLM.');
+            return;
+        }
     }
 
     // Insert a transient "Generating..." message
