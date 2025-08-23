@@ -223,10 +223,32 @@ async function generateImage() {
         toastr.error('No chat messages to base image on.');
         return;
     }
+    console.log('Chat messages:', chat.slice(-5).map(m => ({
+        mes: m.mes.substring(0, 50),
+        is_system: m.is_system,
+        extra: m.extra
+    })));
+    // Find the last message that is visible to the AI
+    let lastVisibleMessage = '';
+    for (let i = chat.length - 1; i >= 0; i--) {
+        const message = chat[i];
 
-    // Use the last message as the scene description
-    const lastMessage = chat[chat.length - 1].mes || '';
-    const llmPrompt = substituteParams(settings.llm_prompt || '').replace('{description}', lastMessage);
+        // Skip messages that are invisible to AI
+        // Common flags that make messages invisible: is_system, is_user (system messages), extra.isTemporary
+        // You may need to adjust these conditions based on your specific SillyTavern setup
+        if (message.is_system ||
+            message.extra?.isTemporary ||
+            message.extra?.invisible ||
+            message.mes === 'Generating image…' ||
+            message.mes === 'Generating image...') {
+            continue;
+        }
+
+        // Found the last visible message
+        lastVisibleMessage = message.mes || '';
+        break;
+    }
+    const llmPrompt = substituteParams(settings.llm_prompt || '').replace('{description}', lastVisibleMessage);
 
     // Generate the actual image prompt from the LLM
     let imagePrompt;
@@ -260,7 +282,7 @@ async function generateImage() {
         let rawInput = { ...savedParams };
 
         // Build the prompt
-        imagePrompt = imagePrompt.replace(/\*/g, "").replace(/"/g, "");
+        imagePrompt = imagePrompt.replace(/\*/g, "").replace(/\"/g, "");
         let prompt = imagePrompt;
         if (settings.append_prompt && rawInput.prompt) {
             prompt = `${rawInput.prompt}, ${imagePrompt}`;
