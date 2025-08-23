@@ -260,9 +260,10 @@ async function generateImage() {
         let rawInput = { ...savedParams };
 
         // Build the prompt
-        let prompt = imagePrompt.replace(/\*/g, "");
+        imagePrompt = imagePrompt.replace(/\*/g, "").replace(/\"/g, "");
+        let prompt = imagePrompt;
         if (settings.append_prompt && rawInput.prompt) {
-            prompt = `${rawInput.prompt}, ${imagePrompt.replace(/\*/g, "") }`;
+            prompt = `${rawInput.prompt}, ${imagePrompt}`;
         }
         rawInput.prompt = prompt;
 
