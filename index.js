@@ -272,10 +272,32 @@ async function generateImage() {
             `${msg.name}: ${msg.mes}`
         ).join('\n\n');
 
-        const rawPrompt = substituteParams(settings.llm_prompt || '').replace('{description}', messagesText);
+        // Get the instruction template and split it
+        const instructionTemplate = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}';
+
+        let systemPrompt, userPrompt;
+
+        if (instructionTemplate.includes('{description}')) {
+            // Split the instruction around {description}
+            const parts = instructionTemplate.split('{description}');
+            systemPrompt = parts[0].trim();
+            const afterDescription = parts[1] ? parts[1].trim() : '';
+
+            // The user prompt includes the conversation and any text after {description}
+            userPrompt = `${messagesText}${afterDescription ? '\n\n' + afterDescription : ''}`;
+        } else {
+            // If no {description} placeholder, use the whole instruction as system prompt
+            systemPrompt = instructionTemplate;
+            userPrompt = messagesText;
+        }
 
         try {
-            imagePrompt = await generateRaw(rawPrompt, '', false, false, '');
+            const result = await generateRaw({
+                systemPrompt: systemPrompt || 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.',
+                prompt: userPrompt,
+                prefill: ''
+            });
+            imagePrompt = result;
         } catch (error) {
             console.error('GenerateRaw failed:', error);
             toastr.error('Failed to generate image prompt using generateRaw.');
