@@ -361,22 +361,41 @@ async function generateImage() {
         const parsedMessages = parsePromptTemplate(instructionTemplate, messagesText);
 
         try {
-            // Find system message (use first one if multiple)
-            const systemMessage = parsedMessages.find(msg => msg.role === 'system');
-            const systemPrompt = systemMessage ? systemMessage.content : 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.';
-
-            // Get non-system messages for the chat completion array
-            const conversationMessages = parsedMessages.filter(msg => msg.role !== 'system');
-
+            let systemPrompt = '';
             let prompt;
-            if (conversationMessages.length > 0) {
-                // Use chat completion format - array of message objects
-                prompt = conversationMessages.map(msg => ({
+
+            if (parsedMessages.length > 0) {
+                // Find system messages (use first one for systemPrompt parameter)
+                const systemMessages = parsedMessages.filter(msg => msg.role === 'system');
+                if (systemMessages.length > 0) {
+                    systemPrompt = systemMessages[0].content;
+                }
+
+                // Create chat completion array with all messages
+                // If there are multiple system messages, include the rest in the chat array
+                const chatMessages = [];
+
+                // Add additional system messages (after the first one) to chat array
+                if (systemMessages.length > 1) {
+                    for (let i = 1; i < systemMessages.length; i++) {
+                        chatMessages.push({
+                            role: 'system',
+                            content: systemMessages[i].content
+                        });
+                    }
+                }
+
+                // Add all non-system messages
+                const otherMessages = parsedMessages.filter(msg => msg.role !== 'system');
+                chatMessages.push(...otherMessages.map(msg => ({
                     role: msg.role,
                     content: msg.content
-                }));
+                })));
+
+                prompt = chatMessages;
             } else {
                 // Fallback to simple string format
+                systemPrompt = 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.';
                 prompt = messagesText;
             }
 
