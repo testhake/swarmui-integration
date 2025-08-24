@@ -1,42 +1,126 @@
-<div id="swarm_settings" class="extension_settings">
+Ôªø<div id="swarm_settings" class="extension_settings">
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b>SwarmUI Extension Settings</b>
+            <b>SwarmUI Image Generation</b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <label for="swarm_url">SwarmUI Base URL (e.g., http://localhost:7801):</label>
-            <input id="swarm_url" class="text_pole" type="text" value="http://localhost:7801" />
-
-            <label for="swarm_session_id">Session ID (optional, leave blank to auto-generate):</label>
-            <input id="swarm_session_id" class="text_pole" type="text" placeholder="Auto-generate if blank" />
-
-            <label for="swarm_llm_prompt">Custom LLM Prompt Template:</label>
-            <textarea id="swarm_llm_prompt" class="textarea_compact" rows="6">Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}</textarea>
-
-            <div style="margin-top: 10px; padding: 10px; background-color: #f5f5f5; border-radius: 5px; font-size: 12px;">
-                <strong>Enhanced Template Format:</strong><br>
-                ï Use <code>{description}</code> to insert chat messages<br>
-                ï Use <code>[system]...[/system]</code> for system messages<br>
-                ï Use <code>[user]...[/user]</code> for user messages<br>
-                ï Use <code>[assistant]...[/assistant]</code> for assistant messages<br>
-                ï Multiple messages of each type are supported<br><br>
-
-                <strong>Example:</strong><br>
-                <code>
-                    [system]You are an expert at creating image prompts.[/system]<br>
-                    [user]Create a detailed description based on: {description}[/user]<br>
-                    [user]Focus on visual details and atmosphere.[/user]
-                </code><br><br>
-
-                <strong>Legacy format still works:</strong> Text before {description} = system, after = user suffix
+            <!-- Connection Settings -->
+            <div class="marginBot5">
+                <label for="swarm_url" class="checkbox_label">
+                    <span>SwarmUI Base URL</span>
+                </label>
+                <input id="swarm_url" class="text_pole" type="text" value="http://localhost:7801" placeholder="http://localhost:7801" />
+                <small class="notes">The base URL of your SwarmUI instance</small>
             </div>
 
-            <label for="swarm_append_prompt"><input id="swarm_append_prompt" type="checkbox" checked /> Append generated prompt to current SwarmUI prompt (instead of replacing)</label>
-            <label for="swarm_use_raw"><input id="swarm_use_raw" type="checkbox" /> Use generateRaw (bypasses system instructions and character card)</label>
-            <label for="swarm_message_count">Number of messages to include (when using generateRaw):</label>
-            <input id="swarm_message_count" class="text_pole" type="number" min="1" max="50" value="5" />
-            <label for="swarm_test_mode"><input id="swarm_test_mode" type="checkbox" /> Test mode: Only generate and display prompt (don't create image)</label>
+            <div class="marginBot10">
+                <label for="swarm_session_id" class="checkbox_label">
+                    <span>Session ID (Optional)</span>
+                </label>
+                <input id="swarm_session_id" class="text_pole" type="text" placeholder="Leave blank to auto-generate" />
+                <small class="notes">Manual session ID override. Leave blank for automatic session management.</small>
+            </div>
+
+            <!-- Prompt Template -->
+            <div class="marginBot10">
+                <label for="swarm_llm_prompt" class="checkbox_label">
+                    <span>LLM Prompt Template</span>
+                </label>
+                <textarea id="swarm_llm_prompt" class="textarea_compact" rows="6" placeholder="Enter your prompt template...">Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}</textarea>
+
+                <!-- Enhanced Help Section -->
+                <div class="note">
+                    <div class="m-b-1">
+                        <strong>üìù Message Tags:</strong>
+                        <div class="tags-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; font-family: monospace; font-size: 11px;">
+                            <div><code>{all_messages}</code> - All visible messages</div>
+                            <div><code>{previous_messages}</code> - All but last message</div>
+                            <div><code>{previous_messages2}</code> - All but last 2 messages</div>
+                            <div><code>{message_last}</code> - Only the last message</div>
+                            <div><code>{message_beforelast}</code> - Message before last</div>
+                            <div><code>{description}</code> - Alias for {all_messages}</div>
+                        </div>
+                    </div>
+
+                    <div class="m-b-1">
+                        <strong>üèóÔ∏è Structured Format:</strong>
+                        <div style="margin: 8px 0; font-family: monospace; font-size: 11px; background: #f8f9fa; padding: 8px; border-radius: 4px;">
+                            <div><code>[system]Instructions here[/system]</code></div>
+                            <div><code>[user]User content with {all_messages}[/user]</code></div>
+                            <div><code>[assistant]Assistant content[/assistant]</code></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <strong>üí° Example:</strong>
+                        <div style="font-family: monospace; font-size: 11px; background: #f0f7ff; padding: 8px; border-radius: 4px; margin-top: 4px;">
+                            [system]You are an expert at creating vivid image prompts.[/system]<br>
+                            [user]Based on this conversation: {all_messages}[/user]<br>
+                            [user]Create a detailed visual description focusing on mood and atmosphere.[/user]
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Generation Options -->
+            <div class="title_restorable">
+                <h4>Generation Options</h4>
+            </div>
+
+            <div class="marginBot5">
+                <label class="checkbox_label" for="swarm_append_prompt">
+                    <input id="swarm_append_prompt" type="checkbox" checked />
+                    <span>Append to existing prompt</span>
+                </label>
+                <small class="notes">Add generated text to current SwarmUI prompt instead of replacing it</small>
+            </div>
+
+            <div class="marginBot5">
+                <label class="checkbox_label" for="swarm_use_raw">
+                    <input id="swarm_use_raw" type="checkbox" />
+                    <span>Use Raw Generation</span>
+                </label>
+                <small class="notes">Bypass system instructions and character card for direct LLM access</small>
+            </div>
+
+            <div class="marginBot10" id="swarm_message_count_container">
+                <label for="swarm_message_count" class="checkbox_label">
+                    <span>Messages to Include</span>
+                </label>
+                <input id="swarm_message_count" class="text_pole" type="number" min="1" max="50" value="5" />
+                <small class="notes">Number of recent visible messages to include when using Raw Generation</small>
+            </div>
+
+            <!-- Testing -->
+            <div class="title_restorable">
+                <h4>Testing</h4>
+            </div>
+
+            <div class="marginBot5">
+                <label class="checkbox_label" for="swarm_test_mode">
+                    <input id="swarm_test_mode" type="checkbox" />
+                    <span>Test Mode</span>
+                </label>
+                <small class="notes">Only generate and display the prompt without creating an actual image</small>
+            </div>
+
+            <!-- Status Info -->
+            <div class="title_restorable">
+                <h4>Status</h4>
+            </div>
+
+            <div class="marginBot10">
+                <div class="flex-container" style="justify-content: space-between; align-items: center;">
+                    <span class="notes">Connection Status:</span>
+                    <span id="swarm_connection_status" class="notes" style="color: #666;">Not tested</span>
+                </div>
+                <div class="flex-container" style="justify-content: space-between; align-items: center; margin-top: 4px;">
+                    <span class="notes">Session ID:</span>
+                    <span id="swarm_current_session" class="notes" style="color: #666; font-family: monospace; font-size: 10px;">Auto-generated</span>
+                </div>
+            </div>
+
         </div>
     </div>
 </div>
