@@ -247,8 +247,45 @@ async function removeGeneratingSlice(context) {
     }
 }
 
-// Add this new function to parse the enhanced prompt template
-function parsePromptTemplate(template, messagesText) {
+// Enhanced function to replace message placeholders with actual content
+function replaceMessagePlaceholders(content, visibleMessages) {
+    let result = content;
+
+    // Replace {all_messages} with all messages (same as {description})
+    if (result.includes('{all_messages}') || result.includes('{description}')) {
+        const allMessagesText = visibleMessages.map(msg => `${msg.name}: ${msg.mes}`).join('\n\n');
+        result = result.replace(/{all_messages}/g, allMessagesText);
+        result = result.replace(/{description}/g, allMessagesText); // backward compatibility
+    }
+
+    // Replace {previous_messages} with all but the last message
+    if (result.includes('{previous_messages}')) {
+        const previousMessages = visibleMessages.slice(0, -1);
+        const previousMessagesText = previousMessages.map(msg => `${msg.name}: ${msg.mes}`).join('\n\n');
+        result = result.replace(/{previous_messages}/g, previousMessagesText);
+    }
+
+    // Replace {message_X} placeholders (message_0 = latest, message_1 = previous, etc.)
+    const messageRegex = /{message_(\d+)}/g;
+    let match;
+    while ((match = messageRegex.exec(content)) !== null) {
+        const messageIndex = parseInt(match[1]);
+        if (messageIndex < visibleMessages.length) {
+            // Get message from the end (0 = last message, 1 = second to last, etc.)
+            const message = visibleMessages[visibleMessages.length - 1 - messageIndex];
+            const messageText = `${message.name}: ${message.mes}`;
+            result = result.replace(new RegExp(`\\{message_${messageIndex}\\}`, 'g'), messageText);
+        } else {
+            // If message index doesn't exist, replace with empty string
+            result = result.replace(new RegExp(`\\{message_${messageIndex}\\}`, 'g'), '');
+        }
+    }
+
+    return result;
+}
+
+// Modified parsePromptTemplate function to use the new message replacement system
+function parsePromptTemplate(template, visibleMessages) {
     // Regular expressions to match different message types
     const systemRegex = /\[system\](.*?)\[\/system\]/gs;
     const userRegex = /\[user\](.*?)\[\/user\]/gs;
@@ -261,7 +298,7 @@ function parsePromptTemplate(template, messagesText) {
     let match;
     while ((match = systemRegex.exec(template)) !== null) {
         hasStructuredMessages = true;
-        const content = match[1].trim().replace('{description}', messagesText);
+        const content = replaceMessagePlaceholders(match[1].trim(), visibleMessages);
         messages.push({
             role: 'system',
             content: content
@@ -272,7 +309,7 @@ function parsePromptTemplate(template, messagesText) {
     userRegex.lastIndex = 0; // Reset regex
     while ((match = userRegex.exec(template)) !== null) {
         hasStructuredMessages = true;
-        const content = match[1].trim().replace('{description}', messagesText);
+        const content = replaceMessagePlaceholders(match[1].trim(), visibleMessages);
         messages.push({
             role: 'user',
             content: content
@@ -283,7 +320,7 @@ function parsePromptTemplate(template, messagesText) {
     assistantRegex.lastIndex = 0; // Reset regex
     while ((match = assistantRegex.exec(template)) !== null) {
         hasStructuredMessages = true;
-        const content = match[1].trim().replace('{description}', messagesText);
+        const content = replaceMessagePlaceholders(match[1].trim(), visibleMessages);
         messages.push({
             role: 'assistant',
             content: content
@@ -292,25 +329,44 @@ function parsePromptTemplate(template, messagesText) {
 
     // If no structured messages found, fall back to old behavior
     if (!hasStructuredMessages) {
-        if (template.includes('{description}')) {
-            const parts = template.split('{description}');
-            const systemPrompt = parts[0].trim();
-            const afterDescription = parts[1] ? parts[1].trim() : '';
+        const messagesText = visibleMessages.map(msg => `${msg.name}: ${msg.mes}`).join('\n\n');
 
-            if (systemPrompt) {
+        if (template.includes('{description}') || template.includes('{all_messages}') ||
+            template.includes('{previous_messages}') || /{message_\d+}/.test(template)) {
+
+            const processedTemplate = replaceMessagePlaceholders(template, visibleMessages);
+
+            // Try to split on remaining {description} if it still exists (shouldn't happen now)
+            if (processedTemplate.includes('{description}')) {
+                const parts = processedTemplate.split('{description}');
+                const systemPrompt = parts[0].trim();
+                const afterDescription = parts[1] ? parts[1].trim() : '';
+
+                if (systemPrompt) {
+                    messages.push({
+                        role: 'system',
+                        content: systemPrompt
+                    });
+                }
+
+                const userContent = `${messagesText}${afterDescription ? '\n\n' + afterDescription : ''}`;
+                messages.push({
+                    role: 'user',
+                    content: userContent
+                });
+            } else {
+                // No {description} left, use processed template as system prompt
                 messages.push({
                     role: 'system',
-                    content: systemPrompt
+                    content: processedTemplate || 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.'
+                });
+                messages.push({
+                    role: 'user',
+                    content: messagesText
                 });
             }
-
-            const userContent = `${messagesText}${afterDescription ? '\n\n' + afterDescription : ''}`;
-            messages.push({
-                role: 'user',
-                content: userContent
-            });
         } else {
-            // No {description} placeholder, use the whole instruction as system prompt
+            // No message placeholders, use the whole instruction as system prompt
             messages.push({
                 role: 'system',
                 content: template || 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.'
@@ -351,14 +407,12 @@ async function generateImage() {
         }
 
         // Format messages for the prompt
-        const messagesText = visibleMessages.map(msg =>
-            `${msg.name}: ${msg.mes}`
-        ).join('\n\n');
+        const visibleMessages = getVisibleMessages(chat, messageCount);
 
         // Get the instruction template and parse it
         const instructionTemplate = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}';
 
-        const parsedMessages = parsePromptTemplate(instructionTemplate, messagesText);
+        const parsedMessages = parsePromptTemplate(instructionTemplate, visibleMessages);
 
         try {
             let systemPrompt = '';
@@ -396,6 +450,7 @@ async function generateImage() {
             } else {
                 // Fallback to simple string format
                 systemPrompt = 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.';
+                const messagesText = visibleMessages.map(msg => `${msg.name}: ${msg.mes}`).join('\n\n');
                 prompt = messagesText;
             }
 
