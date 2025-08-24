@@ -16,25 +16,17 @@
 
             <div style="margin-top: 10px; padding: 10px; background-color: #f5f5f5; border-radius: 5px; font-size: 12px;">
                 <strong>Enhanced Template Format:</strong><br>
-                • Use message placeholders to insert specific messages:<br>
-                <code>{all_messages}</code> or <code>{description}</code> - All messages<br>
-                <code>{previous_messages}</code> - All messages except the latest<br>
-                <code>{message_0}</code> - Latest message only<br>
-                <code>{message_1}</code> - Second latest message<br>
-                <code>{message_2}</code> - Third latest message, etc.<br><br>
-
-                • Use message type tags:<br>
-                <code>[system]...[/system]</code> for system messages<br>
-                <code>[user]...[/user]</code> for user messages<br>
-                <code>[assistant]...[/assistant]</code> for assistant messages<br>
+                • Use <code>{description}</code> to insert chat messages<br>
+                • Use <code>[system]...[/system]</code> for system messages<br>
+                • Use <code>[user]...[/user]</code> for user messages<br>
+                • Use <code>[assistant]...[/assistant]</code> for assistant messages<br>
                 • Multiple messages of each type are supported<br><br>
 
                 <strong>Example:</strong><br>
                 <code>
-                    [system]Create danbooru tags for the current scene.[/system]<br>
-                    [user]Latest message: {message_0}[/user]<br>
-                    [user]Previous context: {previous_messages}[/user]<br>
-                    [user]Focus on current actions, max 20 tags.[/user]
+                    [system]You are an expert at creating image prompts.[/system]<br>
+                    [user]Create a detailed description based on: {description}[/user]<br>
+                    [user]Focus on visual details and atmosphere.[/user]
                 </code><br><br>
 
                 <strong>Legacy format still works:</strong> Text before {description} = system, after = user suffix
