@@ -247,6 +247,85 @@ async function removeGeneratingSlice(context) {
     }
 }
 
+// Add this new function to parse the enhanced prompt template
+function parsePromptTemplate(template, messagesText) {
+    // Regular expressions to match different message types
+    const systemRegex = /\[system\](.*?)\[\/system\]/gs;
+    const userRegex = /\[user\](.*?)\[\/user\]/gs;
+    const assistantRegex = /\[assistant\](.*?)\[\/assistant\]/gs;
+
+    const messages = [];
+    let hasStructuredMessages = false;
+
+    // Extract system messages
+    let match;
+    while ((match = systemRegex.exec(template)) !== null) {
+        hasStructuredMessages = true;
+        const content = match[1].trim().replace('{description}', messagesText);
+        messages.push({
+            role: 'system',
+            content: content
+        });
+    }
+
+    // Extract user messages
+    userRegex.lastIndex = 0; // Reset regex
+    while ((match = userRegex.exec(template)) !== null) {
+        hasStructuredMessages = true;
+        const content = match[1].trim().replace('{description}', messagesText);
+        messages.push({
+            role: 'user',
+            content: content
+        });
+    }
+
+    // Extract assistant messages
+    assistantRegex.lastIndex = 0; // Reset regex
+    while ((match = assistantRegex.exec(template)) !== null) {
+        hasStructuredMessages = true;
+        const content = match[1].trim().replace('{description}', messagesText);
+        messages.push({
+            role: 'assistant',
+            content: content
+        });
+    }
+
+    // If no structured messages found, fall back to old behavior
+    if (!hasStructuredMessages) {
+        if (template.includes('{description}')) {
+            const parts = template.split('{description}');
+            const systemPrompt = parts[0].trim();
+            const afterDescription = parts[1] ? parts[1].trim() : '';
+
+            if (systemPrompt) {
+                messages.push({
+                    role: 'system',
+                    content: systemPrompt
+                });
+            }
+
+            const userContent = `${messagesText}${afterDescription ? '\n\n' + afterDescription : ''}`;
+            messages.push({
+                role: 'user',
+                content: userContent
+            });
+        } else {
+            // No {description} placeholder, use the whole instruction as system prompt
+            messages.push({
+                role: 'system',
+                content: template || 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.'
+            });
+            messages.push({
+                role: 'user',
+                content: messagesText
+            });
+        }
+    }
+
+    return messages;
+}
+
+// Modified generateRaw function call in generateImage()
 async function generateImage() {
     const context = getContext();
     const chat = context.chat;
@@ -276,29 +355,29 @@ async function generateImage() {
             `${msg.name}: ${msg.mes}`
         ).join('\n\n');
 
-        // Get the instruction template and split it
+        // Get the instruction template and parse it
         const instructionTemplate = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {description}';
 
-        let systemPrompt, userPrompt;
-
-        if (instructionTemplate.includes('{description}')) {
-            // Split the instruction around {description}
-            const parts = instructionTemplate.split('{description}');
-            systemPrompt = parts[0].trim();
-            const afterDescription = parts[1] ? parts[1].trim() : '';
-
-            // The user prompt includes the conversation and any text after {description}
-            userPrompt = `${messagesText}${afterDescription ? '\n\n' + afterDescription : ''}`;
-        } else {
-            // If no {description} placeholder, use the whole instruction as system prompt
-            systemPrompt = instructionTemplate;
-            userPrompt = messagesText;
-        }
+        const parsedMessages = parsePromptTemplate(instructionTemplate, messagesText);
 
         try {
+            // Find system message (use first one if multiple)
+            const systemMessage = parsedMessages.find(msg => msg.role === 'system');
+            const systemPrompt = systemMessage ? systemMessage.content : 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.';
+
+            // Combine all user and assistant messages into the main prompt
+            const conversationMessages = parsedMessages.filter(msg => msg.role !== 'system');
+            let mainPrompt = '';
+
+            if (conversationMessages.length > 0) {
+                mainPrompt = conversationMessages.map(msg => msg.content).join('\n\n');
+            } else {
+                mainPrompt = messagesText;
+            }
+
             const result = await generateRaw({
-                systemPrompt: systemPrompt || 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.',
-                prompt: userPrompt,
+                systemPrompt: systemPrompt,
+                prompt: mainPrompt,
                 prefill: ''
             });
             imagePrompt = result;
@@ -346,6 +425,7 @@ async function generateImage() {
         }
     }
 
+    // Rest of the function remains the same...
     // If in test mode, just display the prompt and exit
     if (settings.test_mode) {
         // Add the prompt test result message
@@ -368,6 +448,129 @@ async function generateImage() {
         toastr.success('Prompt generated successfully (test mode)!');
         return;
     }
+
+    // Insert a transient "Generating..." message
+    const generatingMessage = {
+        name: context.name2 || 'System',
+        is_system: true,
+        mes: processingMessage,
+        sendDate: Date.now(),
+        extra: { isTemporary: true }, // Mark as temporary for easier identification
+    };
+
+    chat.push(generatingMessage);
+    generatingMessageId = chat.length - 1;
+
+    // Render the generating message
+    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
+    context.addOneMessage(generatingMessage);
+    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
+
+    try {
+        const sessionId = await validateAndGetSessionId();
+        const savedParams = await getSavedT2IParams(sessionId);
+        let rawInput = { ...savedParams };
+
+        // Build the prompt
+        imagePrompt = imagePrompt.replace(/\*/g, "").replace(/\"/g, "");
+        let prompt = imagePrompt;
+        if (settings.append_prompt && rawInput.prompt) {
+            prompt = `${rawInput.prompt}, ${imagePrompt}`;
+        }
+        rawInput.prompt = prompt;
+
+        // Generate the image
+        const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
+        const requestBody = {
+            session_id: sessionId,
+            images: rawInput.images ?? 1,
+            ...rawInput,
+        };
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'skip_zrok_interstitial': '1',
+                ...getRequestHeaders(),
+            },
+            body: JSON.stringify(requestBody),
+            credentials: 'omit', // Removed auth usage
+        });
+
+        if (!response.ok) {
+            // If the request fails, it might be due to an invalid session
+            // The validateAndGetSessionId function will handle creating a new one on the next call
+            if (response.status === 401 || response.status === 403) {
+                // Clear cached session for next attempt
+                cachedSessionId = null;
+                delete settings.cached_session_id;
+            }
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const responseText = await response.text();
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch {
+            console.error('Invalid JSON response:', responseText);
+            throw new Error('Invalid JSON response from server');
+        }
+
+        if (!data?.images?.length) throw new Error('No images returned from API');
+
+        // Normalize image url
+        let imageUrl = data.images[0];
+        if (typeof imageUrl === 'string' && !imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
+            imageUrl = `${settings.url}/${imageUrl}`;
+        }
+
+        // Remove the generating message BEFORE adding the final image
+        await removeGeneratingSlice(context);
+
+        // Download the image and convert to base64
+        const base64Image = await downloadImageAsBase64(imageUrl);
+
+        // Get character name for filename
+        const characterName = context.characterId !== undefined ?
+            getCharaFilename(context.characterId) : 'unknown';
+
+        // Save the image to SillyTavern's file system
+        const filename = `swarm_${characterName}_${humanizedDateTime()}`;
+        const savedImagePath = await saveBase64AsFile(base64Image, characterName, filename, 'png');
+
+        // Add the final image message with the saved image path
+        const imageMessage = {
+            name: context.name2 || 'System',
+            is_system: true,
+            mes: `Generated image: ${imagePrompt}`,
+            sendDate: Date.now(),
+            extra: {
+                image: savedImagePath,
+                title: imagePrompt
+            },
+        };
+
+        chat.push(imageMessage);
+        const imageMessageId = chat.length - 1;
+
+        // Emit events to properly render the message with image
+        await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
+        context.addOneMessage(imageMessage);
+        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
+        await context.saveChat();
+
+        // Success notification
+        toastr.success('Image generated successfully!');
+
+    } catch (error) {
+        console.error('Generation error:', error);
+        toastr.error(`Failed to generate image: ${error.message}`);
+        await removeGeneratingSlice(getContext());
+    }
+}
 
     // Insert a transient "Generating..." message
     const generatingMessage = {
