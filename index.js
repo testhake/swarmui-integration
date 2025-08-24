@@ -648,7 +648,7 @@ async function generateImage() {
         console.error('Generation error:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
         await removeGeneratingSlice(getContext());
-    }
+    } 
 }
 
 jQuery(async () => {
