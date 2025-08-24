@@ -23,6 +23,7 @@ async function loadSettings() {
     $('#swarm_append_prompt').prop('checked', !!settings.append_prompt).trigger('input');
     $('#swarm_use_raw').prop('checked', !!settings.use_raw).trigger('input');
     $('#swarm_message_count').val(settings.message_count || 5).trigger('input');
+    $('#swarm_test_mode').prop('checked', !!settings.test_mode).trigger('input');
 
     // Load cached session ID if it exists in settings
     cachedSessionId = settings.cached_session_id || null;
@@ -30,7 +31,7 @@ async function loadSettings() {
 
 function onInput(event) {
     const id = event.target.id.replace('swarm_', '');
-    if (id === 'append_prompt' || id === 'use_raw') {
+    if (id === 'append_prompt' || id === 'use_raw' || id === 'test_mode') {
         settings[id] = $(event.target).prop('checked');
     } else if (id === 'message_count') {
         settings[id] = parseInt($(event.target).val()) || 5;
@@ -257,6 +258,9 @@ async function generateImage() {
 
     let imagePrompt;
 
+    // Show processing message based on test mode
+    const processingMessage = settings.test_mode ? 'Generating prompt…' : 'Generating image…';
+
     if (settings.use_raw) {
         // Use generateRaw with multiple messages
         const messageCount = settings.message_count || 5;
@@ -315,7 +319,9 @@ async function generateImage() {
                 message.extra?.isTemporary ||
                 message.extra?.invisible ||
                 message.mes === 'Generating image…' ||
-                message.mes === 'Generating image...') {
+                message.mes === 'Generating image...' ||
+                message.mes === 'Generating prompt…' ||
+                message.mes === 'Generating prompt...') {
                 continue;
             }
 
@@ -340,11 +346,34 @@ async function generateImage() {
         }
     }
 
+    // If in test mode, just display the prompt and exit
+    if (settings.test_mode) {
+        // Add the prompt test result message
+        const testMessage = {
+            name: context.name2 || 'System',
+            is_system: true,
+            mes: `**Generated Prompt (Test Mode):**\n\n${imagePrompt}`,
+            sendDate: Date.now(),
+        };
+
+        chat.push(testMessage);
+        const testMessageId = chat.length - 1;
+
+        // Render the test message
+        await eventSource.emit(event_types.MESSAGE_RECEIVED, testMessageId);
+        context.addOneMessage(testMessage);
+        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, testMessageId);
+        await context.saveChat();
+
+        toastr.success('Prompt generated successfully (test mode)!');
+        return;
+    }
+
     // Insert a transient "Generating..." message
     const generatingMessage = {
         name: context.name2 || 'System',
         is_system: true,
-        mes: 'Generating image…',
+        mes: processingMessage,
         sendDate: Date.now(),
         extra: { isTemporary: true }, // Mark as temporary for easier identification
     };
