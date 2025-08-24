@@ -365,19 +365,24 @@ async function generateImage() {
             const systemMessage = parsedMessages.find(msg => msg.role === 'system');
             const systemPrompt = systemMessage ? systemMessage.content : 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.';
 
-            // Combine all user and assistant messages into the main prompt
+            // Get non-system messages for the chat completion array
             const conversationMessages = parsedMessages.filter(msg => msg.role !== 'system');
-            let mainPrompt = '';
 
+            let prompt;
             if (conversationMessages.length > 0) {
-                mainPrompt = conversationMessages.map(msg => msg.content).join('\n\n');
+                // Use chat completion format - array of message objects
+                prompt = conversationMessages.map(msg => ({
+                    role: msg.role,
+                    content: msg.content
+                }));
             } else {
-                mainPrompt = messagesText;
+                // Fallback to simple string format
+                prompt = messagesText;
             }
 
             const result = await generateRaw({
                 systemPrompt: systemPrompt,
-                prompt: mainPrompt,
+                prompt: prompt,
                 prefill: ''
             });
             imagePrompt = result;
