@@ -566,7 +566,7 @@ async function generateImage() {
         await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, testMessageId);
         await context.saveChat();
 
-        //toastr.success('Prompt generated successfully (test mode)!');
+        toastr.success('Prompt generated successfully (test mode)!');
         playNotificationSound();
 
         return;
@@ -684,7 +684,7 @@ async function generateImage() {
         context.addOneMessage(imageMessage);
         await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
         await context.saveChat();
-
+        playNotificationSound();
     } catch (error) {
         console.error('Generation error:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
