@@ -12,6 +12,65 @@ let settings = {};
 let generatingMessageId = null;
 let cachedSessionId = null; // Cache the session ID
 
+function playMessageSound() {
+    // Method 1: Try to access SillyTavern's built-in sound system
+    if (typeof playMessageSound !== 'undefined' && window.playMessageSound) {
+        window.playMessageSound();
+        return;
+    }
+
+    // Method 2: Trigger through power_user settings (SillyTavern's internal sound system)
+    if (typeof power_user !== 'undefined' && power_user.enableSounds) {
+        // Try to access the internal sound playing function
+        if (typeof SillyTavern !== 'undefined' && SillyTavern.playMessageSound) {
+            SillyTavern.playMessageSound();
+            return;
+        }
+    }
+
+    // Method 3: Fallback - create a custom notification sound
+    try {
+        // Create audio element for notification
+        const audio = new Audio();
+
+        // You can use a data URL for a simple beep sound, or reference an audio file
+        // Simple beep sound as data URL (optional)
+        const beepSound = 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmEe';
+
+        audio.src = beepSound;
+        audio.volume = 0.3; // Adjust volume as needed
+        audio.play().catch(e => {
+            console.log('Could not play notification sound:', e);
+        });
+    } catch (error) {
+        console.log('Fallback sound failed:', error);
+    }
+}
+
+// Add this function to trigger the sound via event system
+function triggerMessageSound() {
+    // Method 1: Try to emit the message sound event
+    try {
+        if (typeof eventSource !== 'undefined' && eventSource.emit) {
+            // Look for message sound event types
+            if (typeof event_types !== 'undefined') {
+                // Try common event names that might trigger sounds
+                const soundEvents = ['MESSAGE_SOUND', 'PLAY_MESSAGE_SOUND', 'CHARACTER_MESSAGE_RENDERED'];
+                soundEvents.forEach(eventName => {
+                    if (event_types[eventName]) {
+                        eventSource.emit(event_types[eventName]);
+                    }
+                });
+            }
+        }
+    } catch (error) {
+        console.log('Event-based sound trigger failed:', error);
+    }
+
+    // Method 2: Direct function call
+    playMessageSound();
+}
+
 async function loadSettings() {
     if (!extension_settings[MODULE_NAME]) {
         extension_settings[MODULE_NAME] = {};
@@ -536,6 +595,8 @@ async function generateImage() {
         await context.saveChat();
 
         toastr.success('Prompt generated successfully (test mode)!');
+        triggerMessageSound();
+
         return;
     }
 
@@ -652,17 +713,6 @@ async function generateImage() {
         await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
         await context.saveChat();
 
-        // Success notification
-        toastr.success('Image generated successfully!');
-        try {
-            const messageSound = document.querySelector('#message_sound');
-            if (messageSound && !messageSound.muted) {
-                messageSound.currentTime = 0;
-                await messageSound.play().catch(e => console.log('Could not play sound:', e));
-            }
-        } catch (error) {
-            console.log('Audio playback failed:', error);
-        }
     } catch (error) {
         console.error('Generation error:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
