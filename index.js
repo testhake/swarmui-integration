@@ -3,7 +3,7 @@ import { getContext, extension_settings } from '../../../extensions.js';
 import { generateQuietPrompt, generateRaw } from '../../../../script.js';
 import { debounce_timeout } from '../../../constants.js';
 import { saveBase64AsFile, getBase64Async, getCharaFilename } from '../../../utils.js';
-import { humanizedDateTime, playMessageSound } from '../../../RossAscends-mods.js';
+import { humanizedDateTime } from '../../../RossAscends-mods.js';
 
 const MODULE_NAME = 'swarmui-integration';
 const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
@@ -654,7 +654,15 @@ async function generateImage() {
 
         // Success notification
         toastr.success('Image generated successfully!');
-        playMessageSound();
+        try {
+            const messageSound = document.querySelector('#message_sound');
+            if (messageSound && !messageSound.muted) {
+                messageSound.currentTime = 0;
+                await messageSound.play().catch(e => console.log('Could not play sound:', e));
+            }
+        } catch (error) {
+            console.log('Audio playback failed:', error);
+        }
     } catch (error) {
         console.error('Generation error:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
