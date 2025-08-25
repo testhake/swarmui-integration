@@ -522,7 +522,7 @@ async function generateImage() {
         const testMessage = {
             name: context.name2 || 'System',
             is_system: true,
-            mes: `**Generated Prompt (Test Mode):**\n\n${imagePrompt}`,
+            mes: `**Generated Prompt (Test Mode):**\n\n${imagePrompt.replace(/\*/g, "").replace(/\"/g, "").replace(/_/g, " ") }`,
             sendDate: Date.now(),
         };
 
