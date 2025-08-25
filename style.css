@@ -82,12 +82,6 @@
         flex-wrap: wrap;
     }
 
-    /* Hide message count when not using raw generation */
-    #swarm_settings:not(.using-raw) #swarm_message_count_container {
-        opacity: 0.5;
-        pointer-events: none;
-    }
-
 #swarm_generate_button {
     display: flex;
     align-items: center;
