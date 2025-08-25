@@ -14,32 +14,18 @@ let cachedSessionId = null; // Cache the session ID
 
 // Method 1: Use SillyTavern's built-in notification system
 function playNotificationSound() {
-    // Try to trigger the browser's notification sound
-    if (window.Notification && Notification.permission === 'granted') {
-        // Create a silent notification that will trigger the system sound
-        const notification = new Notification('Image Generated', {
-            body: 'SwarmUI image generation completed',
-            silent: false, // This ensures sound plays
-            icon: 'favicon.ico'
-        });
+    try {
+        const audio = new Audio();
+        // Path to your sound file in the extension folder
+        audio.src = `${extensionFolderPath}/message.mp3`; // or .wav, .ogg
+        audio.volume = 0.5; // Adjust volume as needed (0.0 to 1.0)
 
-        // Auto-close after 3 seconds
-        setTimeout(() => notification.close(), 3000);
-        return;
-    }
-
-    // Fallback: Request notification permission first
-    if (window.Notification && Notification.permission === 'default') {
-        Notification.requestPermission().then(permission => {
-            if (permission === 'granted') {
-                const notification = new Notification('Image Generated', {
-                    body: 'SwarmUI image generation completed',
-                    silent: false,
-                    icon: 'favicon.ico'
-                });
-                setTimeout(() => notification.close(), 3000);
-            }
+        // Play the sound
+        audio.play().catch(error => {
+            console.log('Could not play notification sound:', error);
         });
+    } catch (error) {
+        console.log('Audio notification failed:', error);
     }
 }
 
