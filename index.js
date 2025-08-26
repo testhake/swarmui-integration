@@ -527,7 +527,13 @@ async function generateImagePromptFromChat() {
 
         imagePrompt = await generateQuietPrompt(llmPrompt);
     }
-    imagePrompt = imagePrompt.replace(/\*/g, "").replace(/\"/g, "").replace(/_/g, " ").replace(/buttocks/g, "ass").trim();
+    imagePrompt = imagePrompt
+        .replace(/\*/g, "")
+        .replace(/\"/g, "")
+        .replace(/_/g, " ")
+        .replace(/buttocks/g, "ass")
+        .replace(/looking at viewer/g, "eye contact")
+        .trim();
     return imagePrompt;
 }
 
