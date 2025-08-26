@@ -853,73 +853,89 @@ function handleMessageGenerateFromMessage(messageId) {
     generateImageFromMessage(parseInt(messageId));
 }
 
-// Register message action buttons
+// Register message action buttons using SillyTavern's proper API
 function registerMessageActions() {
-    // Register the message action buttons
-    eventSource.on('MESSAGE_CONTEXT_MENU_RENDERED', (messageId) => {
-        // Only add our buttons if they don't already exist
-        const menu = $('.extraMesDropdown:visible').first();
-        if (menu.length && !menu.find('.swarm-action').length) {
+    // Alternative approach: Add buttons directly to each message when it's rendered
+    eventSource.on(event_types.MESSAGE_RECEIVED, addSwarmButtonsToMessage);
+    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, addSwarmButtonsToMessage);
+    eventSource.on(event_types.USER_MESSAGE_RENDERED, addSwarmButtonsToMessage);
 
-            // Generate Image with LLM prompt
-            const generateImageAction = $(`
-                <div class="list-group-item flex-container flexGap5 swarm-action" data-message-id="${messageId}">
-                    <div class="fa-solid fa-wand-magic-sparkles extensionsMenuExtensionButton"></div>
-                    <span>Generate Image (LLM Prompt)</span>
-                </div>
-            `);
+    // Also add to existing messages
+    setTimeout(() => {
+        $('.mes').each(function () {
+            const messageId = $(this).attr('mesid');
+            if (messageId && !$(this).find('.swarm-message-button').length) {
+                addSwarmButtonsToMessage(messageId);
+            }
+        });
+    }, 1000);
 
-            // Generate Prompt Only
-            const generatePromptAction = $(`
-                <div class="list-group-item flex-container flexGap5 swarm-action" data-message-id="${messageId}">
-                    <div class="fa-solid fa-pen-fancy extensionsMenuExtensionButton"></div>
-                    <span>Generate Prompt Only</span>
-                </div>
-            `);
+    // Listen for dropdown creation
+    $(document).on('click', '.mes_button.extraMesButtonsHint', function () {
+        const messageBlock = $(this).closest('.mes');
+        const messageId = messageBlock.attr('mesid');
 
-            // Generate Image from Message
-            const generateFromMessageAction = $(`
-                <div class="list-group-item flex-container flexGap5 swarm-action" data-message-id="${messageId}">
-                    <div class="fa-solid fa-image extensionsMenuExtensionButton"></div>
-                    <span>Generate from This Message</span>
-                </div>
-            `);
-
-            // Add click handlers
-            generateImageAction.on('click', function (e) {
-                e.preventDefault();
-                const msgId = $(this).data('message-id');
-                handleMessageGenerateImage(msgId);
-                // Close the dropdown
-                $('.extraMesDropdown').hide();
-            });
-
-            generatePromptAction.on('click', function (e) {
-                e.preventDefault();
-                const msgId = $(this).data('message-id');
-                handleMessageGeneratePrompt(msgId);
-                // Close the dropdown
-                $('.extraMesDropdown').hide();
-            });
-
-            generateFromMessageAction.on('click', function (e) {
-                e.preventDefault();
-                const msgId = $(this).data('message-id');
-                handleMessageGenerateFromMessage(msgId);
-                // Close the dropdown
-                $('.extraMesDropdown').hide();
-            });
-
-            // Add a separator before our actions
-            const separator = $('<hr class="margin0">');
-
-            // Append to menu
-            menu.append(separator);
-            menu.append(generateImageAction);
-            menu.append(generatePromptAction);
-            menu.append(generateFromMessageAction);
-        }
+        setTimeout(() => {
+            addButtonsToDropdown(messageId);
+        }, 50);
     });
+}
+
+function addSwarmButtonsToMessage(messageId) {
+    // This function can be used to add buttons directly to messages if needed
+    // For now, we'll focus on the dropdown approach
+}
+
+function addButtonsToDropdown(messageId) {
+    const dropdown = $('.extraMesDropdown:visible');
+    if (dropdown.length && messageId && !dropdown.find('.swarm-message-action').length) {
+
+        // Add our buttons with proper styling
+        const swarmActions = $(`
+            <div class="list-group-item disabled">
+                <small><i class="fa-solid fa-wand-magic-sparkles"></i> SwarmUI</small>
+            </div>
+            <div class="list-group-item interactable swarm-message-action" data-action="generate-image" data-message-id="${messageId}">
+                <i class="fa-solid fa-wand-magic-sparkles margin-right-10px"></i>Generate Image (LLM)
+            </div>
+            <div class="list-group-item interactable swarm-message-action" data-action="generate-prompt" data-message-id="${messageId}">
+                <i class="fa-solid fa-pen-fancy margin-right-10px"></i>Generate Prompt Only
+            </div>
+            <div class="list-group-item interactable swarm-message-action" data-action="generate-from-message" data-message-id="${messageId}">
+                <i class="fa-solid fa-image margin-right-10px"></i>Generate from Message
+            </div>
+        `);
+
+        // Add separator
+        dropdown.append('<hr class="margin0">');
+        dropdown.append(swarmActions);
+
+        // Add event handlers
+        dropdown.find('.swarm-message-action').on('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const action = $(this).data('action');
+            const msgId = $(this).data('message-id');
+
+            // Close dropdown first
+            dropdown.hide();
+            $('.mes').removeClass('selected');
+
+            // Execute the appropriate action
+            switch (action) {
+                case 'generate-image':
+                    handleMessageGenerateImage(msgId);
+                    break;
+                case 'generate-prompt':
+                    handleMessageGeneratePrompt(msgId);
+                    break;
+                case 'generate-from-message':
+                    handleMessageGenerateFromMessage(msgId);
+                    break;
+            }
+        });
+    }
 }
 
 jQuery(async () => {
