@@ -527,7 +527,7 @@ async function generateImagePromptFromChat() {
 
         imagePrompt = await generateQuietPrompt(llmPrompt);
     }
-
+    imagePrompt = imagePrompt.replace(/\*/g, "").replace(/\"/g, "").replace(/_/g, " ").replace(/buttocks/g, "ass").trim();
     return imagePrompt;
 }
 
@@ -545,7 +545,7 @@ async function generateAndSaveImage(imagePrompt) {
         let rawInput = { ...savedParams };
 
         // Clean and build the prompt
-        const cleanPrompt = imagePrompt.replace(/\*/g, "").replace(/\"/g, "").replace(/_/g, " ").trim();
+        const cleanPrompt = imagePrompt;
         let finalPrompt = cleanPrompt;
 
         if (settings.append_prompt && rawInput.prompt) {
@@ -695,7 +695,7 @@ async function generatePromptOnly() {
         const testMessage = {
             name: context.name2 || 'System',
             is_system: true,
-            mes: `**Generated Prompt:**\n\n${imagePrompt.replace(/\*/g, "").replace(/\"/g, "").replace(/_/g, " ")}`,
+            mes: `**Generated Prompt:**\n\n${imagePrompt}`,
             sendDate: Date.now(),
         };
 
