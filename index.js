@@ -688,10 +688,8 @@ async function addGeneratingMessage() {
     chat.push(generatingMessage);
     generatingMessageId = chat.length - 1;
 
-    // Render the generating message
-    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
+    // Only use addOneMessage to render the generating message
     context.addOneMessage(generatingMessage);
-    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
 
     return generatingMessageId;
 }
@@ -718,9 +716,7 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
     const imageMessageId = chat.length - 1;
 
     // Emit events to properly render the message with image
-    await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
     context.addOneMessage(imageMessage);
-    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
     await context.saveChat();
 
     return imageMessageId;
