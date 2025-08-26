@@ -329,22 +329,42 @@ async function removeGeneratingSlice(context) {
     if (generatingMessageId === null) return;
 
     try {
-        // Store the ID before clearing it
-        const messageIdToRemove = generatingMessageId;
-        generatingMessageId = null;
+        const chat = context.chat;
 
-        // Remove from the chat array
-        context.chat.splice(messageIdToRemove, 1);
+        // Validate that the message at this index is actually our generating message
+        if (generatingMessageId >= 0 && generatingMessageId < chat.length) {
+            const messageToRemove = chat[generatingMessageId];
 
-        // Don't emit CHAT_CHANGED here as it causes duplication
-        // Just save the chat to persist the changes
-        await context.saveChat();
+            // Only remove if it's actually our temporary generating message
+            if (messageToRemove &&
+                messageToRemove.extra?.swarmUIGenerating &&
+                (messageToRemove.mes === 'Generating image…' || messageToRemove.mes === 'Generating image...')) {
+
+                // Remove from the chat array
+                chat.splice(generatingMessageId, 1);
+
+                // Clear the ID immediately to prevent double removal
+                generatingMessageId = null;
+
+                // Force a complete UI rebuild by triggering the chat changed event
+                await eventSource.emit(event_types.CHAT_CHANGED, -1);
+
+                // Save the chat to persist the changes
+                await context.saveChat();
+            } else {
+                console.warn('SwarmUI: Generating message not found at expected index, clearing ID');
+                generatingMessageId = null;
+            }
+        } else {
+            console.warn('SwarmUI: Invalid generating message ID, clearing');
+            generatingMessageId = null;
+        }
 
     } catch (error) {
         console.error('Error removing generating slice:', error);
+        generatingMessageId = null; // Clear the ID even if removal failed
     }
 }
-
 
 // Enhanced function to parse the prompt template with message tags
 function parsePromptTemplate(template, messages) {
@@ -662,12 +682,23 @@ async function addGeneratingMessage() {
     const context = getContext();
     const chat = context.chat;
 
+    // Check if we already have a generating message to prevent duplicates
+    if (generatingMessageId !== null && generatingMessageId < chat.length) {
+        const existingMessage = chat[generatingMessageId];
+        if (existingMessage && (existingMessage.mes === 'Generating image…' || existingMessage.mes === 'Generating image...')) {
+            return generatingMessageId; // Return existing ID instead of creating new one
+        }
+    }
+
     const generatingMessage = {
         name: context.name2 || 'System',
         is_system: true,
         mes: 'Generating image…',
         sendDate: Date.now(),
-        extra: { isTemporary: true },
+        extra: {
+            isTemporary: true,
+            swarmUIGenerating: true // Add unique identifier
+        },
     };
 
     chat.push(generatingMessage);
@@ -702,8 +733,10 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
     chat.push(imageMessage);
     const imageMessageId = chat.length - 1;
 
-    // Only emit these events once and let SillyTavern handle the rendering
-    await eventSource.emit(event_types.CHAT_CHANGED, imageMessageId);
+    // Emit events to properly render the message with image
+    await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
+    context.addOneMessage(imageMessage);
+    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
     await context.saveChat();
 
     return imageMessageId;
@@ -762,7 +795,7 @@ async function generateImage(upToMessageIndex = null) {
         return;
     }
 
-    let generatingMessageId = null;
+    let tempGeneratingMessageId = null;
 
     try {
         setMainButtonsBusy(true);
@@ -771,14 +804,14 @@ async function generateImage(upToMessageIndex = null) {
         const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
         // Add generating message
-        generatingMessageId = await addGeneratingMessage();
+        tempGeneratingMessageId = await addGeneratingMessage();
 
         // Generate and save the image
         const result = await generateAndSaveImage(imagePrompt);
 
         // Remove the generating message
         await removeGeneratingSlice(getContext());
-        generatingMessageId = null;
+        tempGeneratingMessageId = null;
 
         // Add final image message
         await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image');
@@ -789,13 +822,15 @@ async function generateImage(upToMessageIndex = null) {
         console.error('Generation error:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
 
-        if (generatingMessageId !== null) {
+        // Clean up generating message if it exists
+        if (tempGeneratingMessageId !== null || generatingMessageId !== null) {
             await removeGeneratingSlice(getContext());
         }
     } finally {
         setMainButtonsBusy(false);
     }
 }
+
 
 /**
  * Generate image directly from the last message (no LLM prompt generation)
@@ -827,13 +862,13 @@ async function generateImageFromMessage(messageIndex = null) {
         return;
     }
 
-    let generatingMessageId = null;
+    let tempGeneratingMessageId = null;
 
     try {
         setMainButtonsBusy(true);
 
         // Add generating message
-        generatingMessageId = await addGeneratingMessage();
+        tempGeneratingMessageId = await addGeneratingMessage();
 
         // Use the message directly as prompt (no LLM processing)
         const imagePrompt = messageText.trim();
@@ -843,7 +878,7 @@ async function generateImageFromMessage(messageIndex = null) {
 
         // Remove the generating message
         await removeGeneratingSlice(context);
-        generatingMessageId = null;
+        tempGeneratingMessageId = null;
 
         // Add final image message
         await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image from message');
@@ -854,7 +889,8 @@ async function generateImageFromMessage(messageIndex = null) {
         console.error('Generation error:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
 
-        if (generatingMessageId !== null) {
+        // Clean up generating message if it exists
+        if (tempGeneratingMessageId !== null || generatingMessageId !== null) {
             await removeGeneratingSlice(getContext());
         }
     } finally {
