@@ -898,7 +898,7 @@ jQuery(async () => {
     $("#swarm_generate_from_message_button").on("click", () => generateImageFromMessage());
 
     // Add message actions
-    addMessageActions();
+    registerMessageActions();
 
     await loadSettings();
 });
