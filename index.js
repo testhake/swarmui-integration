@@ -334,32 +334,17 @@ async function removeGeneratingSlice(context) {
         generatingMessageId = null;
 
         // Remove from the chat array
-        //context.chat.splice(messageIdToRemove, 1);
+        context.chat.splice(messageIdToRemove, 1);
 
-        // Force a complete UI rebuild by triggering the chat changed event
-        //await eventSource.emit(event_types.CHAT_CHANGED, -1);
-
-        // Save the chat to persist the changes
+        // Don't emit CHAT_CHANGED here as it causes duplication
+        // Just save the chat to persist the changes
         await context.saveChat();
-
-        // Additional DOM cleanup in case the above doesn't work
-        //setTimeout(() => {
-        //    // Find and remove any remaining "Generating image" messages from the DOM
-        //    $('#chat .mes').each(function () {
-        //        const messageText = $(this).find('.mes_text').text().trim();
-        //        if (messageText === 'Generating image…' || messageText === 'Generating image...' ||
-        //            messageText === 'Generating prompt…' || messageText === 'Generating prompt...') {
-        //            $(this).closest('.mes').remove();
-        //        }
-        //    });
-        //}, 50);
 
     } catch (error) {
         console.error('Error removing generating slice:', error);
-        // Fallback: force a page refresh if all else fails
-        // location.reload();
     }
 }
+
 
 // Enhanced function to parse the prompt template with message tags
 function parsePromptTemplate(template, messages) {
@@ -717,10 +702,8 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
     chat.push(imageMessage);
     const imageMessageId = chat.length - 1;
 
-    // Emit events to properly render the message with image
-    await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
-    context.addOneMessage(imageMessage);
-    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
+    // Only emit these events once and let SillyTavern handle the rendering
+    await eventSource.emit(event_types.CHAT_CHANGED, imageMessageId);
     await context.saveChat();
 
     return imageMessageId;
