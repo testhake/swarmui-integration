@@ -415,299 +415,15 @@ function parsePromptTemplate(template, messages) {
 }
 
 /**
- * Generate prompt only (similar to test mode)
+ * Common function to generate a prompt from chat messages using LLM
+ * @returns {Promise<string>} The generated image prompt
  */
-async function generatePromptOnly() {
+async function generateImagePromptFromChat() {
     const context = getContext();
     const chat = context.chat;
 
     if (!Array.isArray(chat) || chat.length === 0) {
-        toastr.error('No chat messages to base prompt on.');
-        return;
-    }
-
-    let imagePrompt;
-
-    try {
-        if (settings.use_raw) {
-            // Use generateRaw with multiple messages
-            const messageCount = settings.message_count || 5;
-            const visibleMessages = getVisibleMessages(chat, messageCount);
-
-            if (visibleMessages.length === 0) {
-                toastr.error('No visible messages found to base prompt on.');
-                return;
-            }
-
-            // Get the instruction template and parse it with message tags
-            const instructionTemplate = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}';
-
-            const parsedMessages = parsePromptTemplate(instructionTemplate, visibleMessages);
-
-            let systemPrompt = '';
-            let prompt;
-
-            if (parsedMessages.length > 0) {
-                // Find system messages (use first one for systemPrompt parameter)
-                const systemMessages = parsedMessages.filter(msg => msg.role === 'system');
-                if (systemMessages.length > 0) {
-                    systemPrompt = systemMessages[0].content;
-                }
-
-                // Create chat completion array with all messages
-                // If there are multiple system messages, include the rest in the chat array
-                const chatMessages = [];
-
-                // Add additional system messages (after the first one) to chat array
-                if (systemMessages.length > 1) {
-                    for (let i = 1; i < systemMessages.length; i++) {
-                        chatMessages.push({
-                            role: 'system',
-                            content: systemMessages[i].content
-                        });
-                    }
-                }
-
-                // Add all non-system messages
-                const otherMessages = parsedMessages.filter(msg => msg.role !== 'system');
-                chatMessages.push(...otherMessages.map(msg => ({
-                    role: msg.role,
-                    content: msg.content
-                })));
-
-                prompt = chatMessages;
-            } else {
-                // Fallback to simple string format
-                systemPrompt = 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.';
-                prompt = formatMessages(visibleMessages);
-            }
-
-            const result = await generateRaw({
-                systemPrompt: systemPrompt,
-                prompt: prompt,
-                prefill: ''
-            });
-            imagePrompt = result;
-        } else {
-            // Use the original method with generateQuietPrompt
-            // Find the last message that is visible to the AI
-            let lastVisibleMessage = '';
-            for (let i = chat.length - 1; i >= 0; i--) {
-                const message = chat[i];
-
-                // Skip messages that are invisible to AI
-                if (message.is_system ||
-                    message.extra?.isTemporary ||
-                    message.extra?.invisible ||
-                    message.mes === 'Generating image…' ||
-                    message.mes === 'Generating image...' ||
-                    message.mes === 'Generating prompt…' ||
-                    message.mes === 'Generating prompt...') {
-                    continue;
-                }
-
-                // Found the last visible message
-                lastVisibleMessage = message.mes || '';
-                break;
-            }
-
-            if (!lastVisibleMessage) {
-                toastr.error('No visible messages found to base prompt on.');
-                return;
-            }
-
-            // For backward compatibility, also check for new message tags in non-raw mode
-            const messageCount = settings.message_count || 5;
-            const visibleMessages = getVisibleMessages(chat, messageCount);
-
-            let llmPrompt = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}';
-
-            // Replace message tags if they exist
-            if (/{(all_messages|previous_messages|previous_messages2|message_last|message_beforelast)}/.test(llmPrompt)) {
-                llmPrompt = replaceMessageTags(llmPrompt, visibleMessages);
-            } else {
-                // Backward compatibility - replace {description} with last message
-                llmPrompt = substituteParams(llmPrompt).replace('{description}', lastVisibleMessage);
-            }
-
-            imagePrompt = await generateQuietPrompt(llmPrompt);
-        }
-
-        // Add the prompt test result message
-        const testMessage = {
-            name: context.name2 || 'System',
-            is_system: true,
-            mes: `**Generated Prompt:**\n\n${imagePrompt.replace(/\*/g, "").replace(/\"/g, "").replace(/_/g, " ")}`,
-            sendDate: Date.now(),
-        };
-
-        chat.push(testMessage);
-        const testMessageId = chat.length - 1;
-
-        // Render the test message
-        await eventSource.emit(event_types.MESSAGE_RECEIVED, testMessageId);
-        context.addOneMessage(testMessage);
-        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, testMessageId);
-        await context.saveChat();
-
-        toastr.success('Prompt generated successfully!');
-        playNotificationSound();
-
-    } catch (error) {
-        console.error('GeneratePrompt failed:', error);
-        toastr.error('Failed to generate prompt.');
-    }
-}
-
-/**
- * Generate image from the last message directly (no LLM prompt generation)
- */
-async function generateImageFromMessage() {
-    const context = getContext();
-    const chat = context.chat;
-
-    if (!Array.isArray(chat) || chat.length === 0) {
-        toastr.error('No chat messages to base image on.');
-        return;
-    }
-
-    // Get the last message (even if invisible)
-    const lastMessageText = getLastMessage(chat);
-
-    if (!lastMessageText || !lastMessageText.trim()) {
-        toastr.error('Last message is empty or not found.');
-        return;
-    }
-
-    // Insert a transient "Generating..." message
-    const generatingMessage = {
-        name: context.name2 || 'System',
-        is_system: true,
-        mes: 'Generating image…',
-        sendDate: Date.now(),
-        extra: { isTemporary: true }, // Mark as temporary for easier identification
-    };
-
-    chat.push(generatingMessage);
-    generatingMessageId = chat.length - 1;
-
-    // Render the generating message
-    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
-    context.addOneMessage(generatingMessage);
-    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
-
-    try {
-        const sessionId = await validateAndGetSessionId();
-        const savedParams = await getSavedT2IParams(sessionId);
-        let rawInput = { ...savedParams };
-
-        // Clean up the message text and use it as the prompt
-        let imagePrompt = lastMessageText.replace(/\*/g, "").replace(/\"/g, "").replace(/_/g, " ").trim();
-        let prompt = imagePrompt;
-
-        if (settings.append_prompt && rawInput.prompt) {
-            prompt = `${imagePrompt}, ${rawInput.prompt}`;
-        }
-        rawInput.prompt = prompt;
-
-        // Generate the image
-        const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
-        const requestBody = {
-            session_id: sessionId,
-            images: rawInput.images ?? 1,
-            ...rawInput,
-        };
-
-        const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'skip_zrok_interstitial': '1',
-                ...getRequestHeaders(),
-            },
-            body: JSON.stringify(requestBody),
-            credentials: 'omit', // Removed auth usage
-        });
-
-        if (!response.ok) {
-            // If the request fails, it might be due to an invalid session
-            // The validateAndGetSessionId function will handle creating a new one on the next call
-            if (response.status === 401 || response.status === 403) {
-                // Clear cached session for next attempt
-                cachedSessionId = null;
-                delete settings.cached_session_id;
-            }
-            throw new Error(`HTTP ${response.status}`);
-        }
-
-        const responseText = await response.text();
-        let data;
-        try {
-            data = JSON.parse(responseText);
-        } catch {
-            console.error('Invalid JSON response:', responseText);
-            throw new Error('Invalid JSON response from server');
-        }
-
-        if (!data?.images?.length) throw new Error('No images returned from API');
-
-        // Normalize image url
-        let imageUrl = data.images[0];
-        if (typeof imageUrl === 'string' && !imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
-            imageUrl = `${settings.url}/${imageUrl}`;
-        }
-
-        // Remove the generating message BEFORE adding the final image
-        await removeGeneratingSlice(context);
-
-        // Download the image and convert to base64
-        const base64Image = await downloadImageAsBase64(imageUrl);
-
-        // Get character name for filename
-        const characterName = context.characterId !== undefined ?
-            getCharaFilename(context.characterId) : 'unknown';
-
-        // Save the image to SillyTavern's file system
-        const filename = `swarm_${characterName}_${humanizedDateTime()}`;
-        const savedImagePath = await saveBase64AsFile(base64Image, characterName, filename, 'png');
-
-        // Add the final image message with the saved image path
-        const imageMessage = {
-            name: context.name2 || 'System',
-            is_system: true,
-            mes: `Generated image from message: ${imagePrompt}`,
-            sendDate: Date.now(),
-            extra: {
-                image: savedImagePath,
-                title: imagePrompt
-            },
-        };
-
-        chat.push(imageMessage);
-        const imageMessageId = chat.length - 1;
-
-        // Emit events to properly render the message with image
-        await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
-        context.addOneMessage(imageMessage);
-        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
-        await context.saveChat();
-        playNotificationSound();
-    } catch (error) {
-        console.error('Generation error:', error);
-        toastr.error(`Failed to generate image: ${error.message}`);
-        await removeGeneratingSlice(getContext());
-    }
-}
-
-// Modified generateImage function (original functionality, no test mode)
-async function generateImage() {
-    const context = getContext();
-    const chat = context.chat;
-
-    if (!Array.isArray(chat) || chat.length === 0) {
-        toastr.error('No chat messages to base image on.');
-        return;
+        throw new Error('No chat messages to base prompt on.');
     }
 
     let imagePrompt;
@@ -718,65 +434,56 @@ async function generateImage() {
         const visibleMessages = getVisibleMessages(chat, messageCount);
 
         if (visibleMessages.length === 0) {
-            toastr.error('No visible messages found to base image on.');
-            return;
+            throw new Error('No visible messages found to base prompt on.');
         }
 
         // Get the instruction template and parse it with message tags
         const instructionTemplate = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}';
-
         const parsedMessages = parsePromptTemplate(instructionTemplate, visibleMessages);
 
-        try {
-            let systemPrompt = '';
-            let prompt;
+        let systemPrompt = '';
+        let prompt;
 
-            if (parsedMessages.length > 0) {
-                // Find system messages (use first one for systemPrompt parameter)
-                const systemMessages = parsedMessages.filter(msg => msg.role === 'system');
-                if (systemMessages.length > 0) {
-                    systemPrompt = systemMessages[0].content;
-                }
-
-                // Create chat completion array with all messages
-                // If there are multiple system messages, include the rest in the chat array
-                const chatMessages = [];
-
-                // Add additional system messages (after the first one) to chat array
-                if (systemMessages.length > 1) {
-                    for (let i = 1; i < systemMessages.length; i++) {
-                        chatMessages.push({
-                            role: 'system',
-                            content: systemMessages[i].content
-                        });
-                    }
-                }
-
-                // Add all non-system messages
-                const otherMessages = parsedMessages.filter(msg => msg.role !== 'system');
-                chatMessages.push(...otherMessages.map(msg => ({
-                    role: msg.role,
-                    content: msg.content
-                })));
-
-                prompt = chatMessages;
-            } else {
-                // Fallback to simple string format
-                systemPrompt = 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.';
-                prompt = formatMessages(visibleMessages);
+        if (parsedMessages.length > 0) {
+            // Find system messages (use first one for systemPrompt parameter)
+            const systemMessages = parsedMessages.filter(msg => msg.role === 'system');
+            if (systemMessages.length > 0) {
+                systemPrompt = systemMessages[0].content;
             }
 
-            const result = await generateRaw({
-                systemPrompt: systemPrompt,
-                prompt: prompt,
-                prefill: ''
-            });
-            imagePrompt = result;
-        } catch (error) {
-            console.error('GenerateRaw failed:', error);
-            toastr.error('Failed to generate image prompt using generateRaw.');
-            return;
+            // Create chat completion array with all messages
+            const chatMessages = [];
+
+            // Add additional system messages (after the first one) to chat array
+            if (systemMessages.length > 1) {
+                for (let i = 1; i < systemMessages.length; i++) {
+                    chatMessages.push({
+                        role: 'system',
+                        content: systemMessages[i].content
+                    });
+                }
+            }
+
+            // Add all non-system messages
+            const otherMessages = parsedMessages.filter(msg => msg.role !== 'system');
+            chatMessages.push(...otherMessages.map(msg => ({
+                role: msg.role,
+                content: msg.content
+            })));
+
+            prompt = chatMessages;
+        } else {
+            // Fallback to simple string format
+            systemPrompt = 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.';
+            prompt = formatMessages(visibleMessages);
         }
+
+        const result = await generateRaw({
+            systemPrompt: systemPrompt,
+            prompt: prompt,
+            prefill: ''
+        });
+        imagePrompt = result;
     } else {
         // Use the original method with generateQuietPrompt
         // Find the last message that is visible to the AI
@@ -801,8 +508,7 @@ async function generateImage() {
         }
 
         if (!lastVisibleMessage) {
-            toastr.error('No visible messages found to base image on.');
-            return;
+            throw new Error('No visible messages found to base prompt on.');
         }
 
         // For backward compatibility, also check for new message tags in non-raw mode
@@ -819,44 +525,33 @@ async function generateImage() {
             llmPrompt = substituteParams(llmPrompt).replace('{description}', lastVisibleMessage);
         }
 
-        try {
-            imagePrompt = await generateQuietPrompt(llmPrompt);
-        } catch (error) {
-            console.error('GenerateQuietPrompt failed:', error);
-            toastr.error('Failed to generate image prompt from LLM.');
-            return;
-        }
+        imagePrompt = await generateQuietPrompt(llmPrompt);
     }
 
-    // Insert a transient "Generating..." message
-    const generatingMessage = {
-        name: context.name2 || 'System',
-        is_system: true,
-        mes: 'Generating image…',
-        sendDate: Date.now(),
-        extra: { isTemporary: true }, // Mark as temporary for easier identification
-    };
+    return imagePrompt;
+}
 
-    chat.push(generatingMessage);
-    generatingMessageId = chat.length - 1;
-
-    // Render the generating message
-    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
-    context.addOneMessage(generatingMessage);
-    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
+/**
+ * Common function to generate and save an image using SwarmUI API
+ * @param {string} imagePrompt - The prompt to use for image generation
+ * @returns {Promise<Object>} Object containing savedImagePath and imagePrompt
+ */
+async function generateAndSaveImage(imagePrompt) {
+    const context = getContext();
 
     try {
         const sessionId = await validateAndGetSessionId();
         const savedParams = await getSavedT2IParams(sessionId);
         let rawInput = { ...savedParams };
 
-        // Build the prompt
-        imagePrompt = imagePrompt.replace(/\*/g, "").replace(/\"/g, "").replace(/_/g, " ");
-        let prompt = imagePrompt;
+        // Clean and build the prompt
+        const cleanPrompt = imagePrompt.replace(/\*/g, "").replace(/\"/g, "").replace(/_/g, " ").trim();
+        let finalPrompt = cleanPrompt;
+
         if (settings.append_prompt && rawInput.prompt) {
-            prompt = `${imagePrompt}, ${rawInput.prompt}`;
+            finalPrompt = `${cleanPrompt}, ${rawInput.prompt}`;
         }
-        rawInput.prompt = prompt;
+        rawInput.prompt = finalPrompt;
 
         // Generate the image
         const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
@@ -875,12 +570,11 @@ async function generateImage() {
                 ...getRequestHeaders(),
             },
             body: JSON.stringify(requestBody),
-            credentials: 'omit', // Removed auth usage
+            credentials: 'omit',
         });
 
         if (!response.ok) {
             // If the request fails, it might be due to an invalid session
-            // The validateAndGetSessionId function will handle creating a new one on the next call
             if (response.status === 401 || response.status === 403) {
                 // Clear cached session for next attempt
                 cachedSessionId = null;
@@ -898,16 +592,15 @@ async function generateImage() {
             throw new Error('Invalid JSON response from server');
         }
 
-        if (!data?.images?.length) throw new Error('No images returned from API');
+        if (!data?.images?.length) {
+            throw new Error('No images returned from API');
+        }
 
         // Normalize image url
         let imageUrl = data.images[0];
         if (typeof imageUrl === 'string' && !imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
             imageUrl = `${settings.url}/${imageUrl}`;
         }
-
-        // Remove the generating message BEFORE adding the final image
-        await removeGeneratingSlice(context);
 
         // Download the image and convert to base64
         const base64Image = await downloadImageAsBase64(imageUrl);
@@ -920,31 +613,193 @@ async function generateImage() {
         const filename = `swarm_${characterName}_${humanizedDateTime()}`;
         const savedImagePath = await saveBase64AsFile(base64Image, characterName, filename, 'png');
 
-        // Add the final image message with the saved image path
-        const imageMessage = {
+        return {
+            savedImagePath: savedImagePath,
+            imagePrompt: cleanPrompt
+        };
+    } catch (error) {
+        // Re-throw with more context
+        throw new Error(`Image generation failed: ${error.message}`);
+    }
+}
+
+/**
+ * Add a "generating..." message to chat and return its ID
+ */
+async function addGeneratingMessage() {
+    const context = getContext();
+    const chat = context.chat;
+
+    const generatingMessage = {
+        name: context.name2 || 'System',
+        is_system: true,
+        mes: 'Generating image…',
+        sendDate: Date.now(),
+        extra: { isTemporary: true },
+    };
+
+    chat.push(generatingMessage);
+    generatingMessageId = chat.length - 1;
+
+    // Render the generating message
+    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
+    context.addOneMessage(generatingMessage);
+    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
+
+    return generatingMessageId;
+}
+
+/**
+ * Add final image message to chat
+ */
+async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Generated image') {
+    const context = getContext();
+    const chat = context.chat;
+
+    const imageMessage = {
+        name: context.name2 || 'System',
+        is_system: true,
+        mes: `${messagePrefix}: ${imagePrompt}`,
+        sendDate: Date.now(),
+        extra: {
+            image: savedImagePath,
+            title: imagePrompt
+        },
+    };
+
+    chat.push(imageMessage);
+    const imageMessageId = chat.length - 1;
+
+    // Emit events to properly render the message with image
+    await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
+    context.addOneMessage(imageMessage);
+    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
+    await context.saveChat();
+
+    return imageMessageId;
+}
+
+// REFACTORED MAIN FUNCTIONS
+
+/**
+ * Generate prompt only (test mode)
+ */
+async function generatePromptOnly() {
+    try {
+        const imagePrompt = await generateImagePromptFromChat();
+
+        const context = getContext();
+        const chat = context.chat;
+
+        // Add the prompt test result message
+        const testMessage = {
             name: context.name2 || 'System',
             is_system: true,
-            mes: `Generated image: ${imagePrompt}`,
+            mes: `**Generated Prompt:**\n\n${imagePrompt.replace(/\*/g, "").replace(/\"/g, "").replace(/_/g, " ")}`,
             sendDate: Date.now(),
-            extra: {
-                image: savedImagePath,
-                title: imagePrompt
-            },
         };
 
-        chat.push(imageMessage);
-        const imageMessageId = chat.length - 1;
+        chat.push(testMessage);
+        const testMessageId = chat.length - 1;
 
-        // Emit events to properly render the message with image
-        await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
-        context.addOneMessage(imageMessage);
-        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
+        // Render the test message
+        await eventSource.emit(event_types.MESSAGE_RECEIVED, testMessageId);
+        context.addOneMessage(testMessage);
+        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, testMessageId);
         await context.saveChat();
+
+        toastr.success('Prompt generated successfully!');
         playNotificationSound();
+
+    } catch (error) {
+        console.error('GeneratePrompt failed:', error);
+        toastr.error(`Failed to generate prompt: ${error.message}`);
+    }
+}
+
+/**
+ * Generate image from chat using LLM-generated prompt
+ */
+async function generateImage() {
+    let generatingMessageId = null;
+
+    try {
+        // Generate the prompt first
+        const imagePrompt = await generateImagePromptFromChat();
+
+        // Add generating message
+        generatingMessageId = await addGeneratingMessage();
+
+        // Generate and save the image
+        const result = await generateAndSaveImage(imagePrompt);
+
+        // Remove the generating message
+        await removeGeneratingSlice(getContext());
+        generatingMessageId = null;
+
+        // Add final image message
+        await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image');
+
+        playNotificationSound();
+
     } catch (error) {
         console.error('Generation error:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
-        await removeGeneratingSlice(getContext());
+
+        if (generatingMessageId !== null) {
+            await removeGeneratingSlice(getContext());
+        }
+    }
+}
+
+/**
+ * Generate image directly from the last message (no LLM prompt generation)
+ */
+async function generateImageFromMessage() {
+    const context = getContext();
+    const chat = context.chat;
+
+    if (!Array.isArray(chat) || chat.length === 0) {
+        toastr.error('No chat messages to base image on.');
+        return;
+    }
+
+    // Get the last message (even if invisible)
+    const lastMessageText = getLastMessage(chat);
+
+    if (!lastMessageText || !lastMessageText.trim()) {
+        toastr.error('Last message is empty or not found.');
+        return;
+    }
+
+    let generatingMessageId = null;
+
+    try {
+        // Add generating message
+        generatingMessageId = await addGeneratingMessage();
+
+        // Use the message directly as prompt (no LLM processing)
+        const imagePrompt = lastMessageText.trim();
+
+        // Generate and save the image
+        const result = await generateAndSaveImage(imagePrompt);
+
+        // Remove the generating message
+        await removeGeneratingSlice(context);
+        generatingMessageId = null;
+
+        // Add final image message
+        await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image from message');
+
+        playNotificationSound();
+
+    } catch (error) {
+        console.error('Generation error:', error);
+        toastr.error(`Failed to generate image: ${error.message}`);
+
+        if (generatingMessageId !== null) {
+            await removeGeneratingSlice(getContext());
+        }
     }
 }
 
