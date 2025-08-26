@@ -329,40 +329,23 @@ async function removeGeneratingSlice(context) {
     if (generatingMessageId === null) return;
 
     try {
-        const chat = context.chat;
+        // Store the ID before clearing it
+        const messageIdToRemove = generatingMessageId;
+        generatingMessageId = null;
 
-        // Validate that the message at this index is actually our generating message
-        if (generatingMessageId >= 0 && generatingMessageId < chat.length) {
-            const messageToRemove = chat[generatingMessageId];
+        // Remove from the chat array
+        context.chat.splice(messageIdToRemove, 1);
 
-            // Only remove if it's actually our temporary generating message
-            if (messageToRemove &&
-                messageToRemove.extra?.swarmUIGenerating &&
-                (messageToRemove.mes === 'Generating image…' || messageToRemove.mes === 'Generating image...')) {
+        // Force a complete UI rebuild by triggering the chat changed event
+        await eventSource.emit(event_types.CHAT_CHANGED, -1);
 
-                // Remove from the chat array
-                chat.splice(generatingMessageId, 1);
-
-                // Clear the ID immediately to prevent double removal
-                generatingMessageId = null;
-
-                // Force a complete UI rebuild by triggering the chat changed event
-                await eventSource.emit(event_types.CHAT_CHANGED, -1);
-
-                // Save the chat to persist the changes
-                await context.saveChat();
-            } else {
-                console.warn('SwarmUI: Generating message not found at expected index, clearing ID');
-                generatingMessageId = null;
-            }
-        } else {
-            console.warn('SwarmUI: Invalid generating message ID, clearing');
-            generatingMessageId = null;
-        }
+        // Save the chat to persist the changes
+        await context.saveChat();
 
     } catch (error) {
         console.error('Error removing generating slice:', error);
-        generatingMessageId = null; // Clear the ID even if removal failed
+        // Fallback: force a page refresh if all else fails
+        // location.reload();
     }
 }
 
@@ -682,23 +665,12 @@ async function addGeneratingMessage() {
     const context = getContext();
     const chat = context.chat;
 
-    // Check if we already have a generating message to prevent duplicates
-    if (generatingMessageId !== null && generatingMessageId < chat.length) {
-        const existingMessage = chat[generatingMessageId];
-        if (existingMessage && (existingMessage.mes === 'Generating image…' || existingMessage.mes === 'Generating image...')) {
-            return generatingMessageId; // Return existing ID instead of creating new one
-        }
-    }
-
     const generatingMessage = {
         name: context.name2 || 'System',
         is_system: true,
         mes: 'Generating image…',
         sendDate: Date.now(),
-        extra: {
-            isTemporary: true,
-            swarmUIGenerating: true // Add unique identifier
-        },
+        extra: { isTemporary: true },
     };
 
     chat.push(generatingMessage);
@@ -795,7 +767,7 @@ async function generateImage(upToMessageIndex = null) {
         return;
     }
 
-    let tempGeneratingMessageId = null;
+    let generatingMessageId = null;
 
     try {
         setMainButtonsBusy(true);
@@ -804,14 +776,14 @@ async function generateImage(upToMessageIndex = null) {
         const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
         // Add generating message
-        tempGeneratingMessageId = await addGeneratingMessage();
+        //generatingMessageId = await addGeneratingMessage();
 
         // Generate and save the image
         const result = await generateAndSaveImage(imagePrompt);
 
         // Remove the generating message
-        await removeGeneratingSlice(getContext());
-        tempGeneratingMessageId = null;
+        //await removeGeneratingSlice(getContext());
+        generatingMessageId = null;
 
         // Add final image message
         await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image');
@@ -822,15 +794,13 @@ async function generateImage(upToMessageIndex = null) {
         console.error('Generation error:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
 
-        // Clean up generating message if it exists
-        if (tempGeneratingMessageId !== null || generatingMessageId !== null) {
-            await removeGeneratingSlice(getContext());
+        if (generatingMessageId !== null) {
+            //await removeGeneratingSlice(getContext());
         }
     } finally {
         setMainButtonsBusy(false);
     }
 }
-
 
 /**
  * Generate image directly from the last message (no LLM prompt generation)
@@ -862,13 +832,13 @@ async function generateImageFromMessage(messageIndex = null) {
         return;
     }
 
-    let tempGeneratingMessageId = null;
+    let generatingMessageId = null;
 
     try {
         setMainButtonsBusy(true);
 
         // Add generating message
-        tempGeneratingMessageId = await addGeneratingMessage();
+        //generatingMessageId = await addGeneratingMessage();
 
         // Use the message directly as prompt (no LLM processing)
         const imagePrompt = messageText.trim();
@@ -877,8 +847,8 @@ async function generateImageFromMessage(messageIndex = null) {
         const result = await generateAndSaveImage(imagePrompt);
 
         // Remove the generating message
-        await removeGeneratingSlice(context);
-        tempGeneratingMessageId = null;
+        //await removeGeneratingSlice(context);
+        generatingMessageId = null;
 
         // Add final image message
         await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image from message');
@@ -889,9 +859,8 @@ async function generateImageFromMessage(messageIndex = null) {
         console.error('Generation error:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
 
-        // Clean up generating message if it exists
-        if (tempGeneratingMessageId !== null || generatingMessageId !== null) {
-            await removeGeneratingSlice(getContext());
+        if (generatingMessageId !== null) {
+            //await removeGeneratingSlice(getContext());
         }
     } finally {
         setMainButtonsBusy(false);
