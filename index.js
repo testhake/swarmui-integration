@@ -11,6 +11,7 @@ const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
 let settings = {};
 let generatingMessageId = null;
 let cachedSessionId = null; // Cache the session ID
+let mainButtonsBusy = false; // Add this line
 
 // Method 1: Use SillyTavern's built-in notification system
 function playNotificationSound() {
@@ -27,6 +28,19 @@ function playNotificationSound() {
     } catch (error) {
         console.log('Audio notification failed:', error);
     }
+}
+// Helper function for main button busy states
+function setMainButtonsBusy(isBusy) {
+    mainButtonsBusy = isBusy;
+
+    $('#swarm_generate_button i').toggleClass('fa-wand-magic-sparkles', !isBusy);
+    $('#swarm_generate_button i').toggleClass('fa-hourglass-half', isBusy);
+
+    $('#swarm_generate_prompt_button i').toggleClass('fa-pen-fancy', !isBusy);
+    $('#swarm_generate_prompt_button i').toggleClass('fa-hourglass-half', isBusy);
+
+    $('#swarm_generate_from_message_button i').toggleClass('fa-image', !isBusy);
+    $('#swarm_generate_from_message_button i').toggleClass('fa-hourglass-half', isBusy);
 }
 
 async function loadSettings() {
@@ -712,13 +726,17 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
     return imageMessageId;
 }
 
-// REFACTORED MAIN FUNCTIONS
-
 /**
  * Generate prompt only (test mode)
  */
 async function generatePromptOnly(upToMessageIndex = null) {
+    if (mainButtonsBusy) {
+        console.log('SwarmUI: Previous generation still in progress...');
+        return;
+    }
+
     try {
+        setMainButtonsBusy(true);
         const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
         const context = getContext();
@@ -747,6 +765,8 @@ async function generatePromptOnly(upToMessageIndex = null) {
     } catch (error) {
         console.error('GeneratePrompt failed:', error);
         toastr.error(`Failed to generate prompt: ${error.message}`);
+    } finally {
+        setMainButtonsBusy(false);
     }
 }
 
@@ -754,9 +774,16 @@ async function generatePromptOnly(upToMessageIndex = null) {
  * Generate image from chat using LLM-generated prompt
  */
 async function generateImage(upToMessageIndex = null) {
+    if (mainButtonsBusy) {
+        console.log('SwarmUI: Previous generation still in progress...');
+        return;
+    }
+
     let generatingMessageId = null;
 
     try {
+        setMainButtonsBusy(true);
+
         // Generate the prompt first
         const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
@@ -782,6 +809,8 @@ async function generateImage(upToMessageIndex = null) {
         if (generatingMessageId !== null) {
             await removeGeneratingSlice(getContext());
         }
+    } finally {
+        setMainButtonsBusy(false);
     }
 }
 
@@ -789,6 +818,11 @@ async function generateImage(upToMessageIndex = null) {
  * Generate image directly from the last message (no LLM prompt generation)
  */
 async function generateImageFromMessage(messageIndex = null) {
+    if (mainButtonsBusy) {
+        console.log('SwarmUI: Previous generation still in progress...');
+        return;
+    }
+
     const context = getContext();
     const chat = context.chat;
 
@@ -813,6 +847,8 @@ async function generateImageFromMessage(messageIndex = null) {
     let generatingMessageId = null;
 
     try {
+        setMainButtonsBusy(true);
+
         // Add generating message
         generatingMessageId = await addGeneratingMessage();
 
@@ -838,6 +874,8 @@ async function generateImageFromMessage(messageIndex = null) {
         if (generatingMessageId !== null) {
             await removeGeneratingSlice(getContext());
         }
+    } finally {
+        setMainButtonsBusy(false);
     }
 }
 
