@@ -174,12 +174,18 @@ async function getSavedT2IParams(sessionId) {
 }
 
 /**
- * Get the last X visible messages from the chat
+ * Get the last X visible messages from the chat, starting from a specific index
+ * @param {Array} chat - The chat array
+ * @param {number} count - Number of messages to get
+ * @param {number} fromIndex - Index to start from (inclusive), defaults to end of array
  */
-function getVisibleMessages(chat, count) {
+function getVisibleMessages(chat, count, fromIndex = null) {
     const visibleMessages = [];
 
-    for (let i = chat.length - 1; i >= 0 && visibleMessages.length < count; i--) {
+    // If fromIndex is not specified, start from the end
+    const startIndex = fromIndex !== null ? fromIndex : chat.length - 1;
+
+    for (let i = startIndex; i >= 0 && visibleMessages.length < count; i--) {
         const message = chat[i];
 
         // Skip messages that are invisible to AI
@@ -200,6 +206,20 @@ function getVisibleMessages(chat, count) {
     }
 
     return visibleMessages;
+}
+
+/**
+ * Get a specific message from the chat
+ * @param {Array} chat - The chat array
+ * @param {number} messageIndex - Index of the message to get
+ */
+function getMessageAtIndex(chat, messageIndex) {
+    if (!Array.isArray(chat) || messageIndex < 0 || messageIndex >= chat.length) {
+        return null;
+    }
+
+    const message = chat[messageIndex];
+    return message ? message.mes || '' : null;
 }
 
 /**
@@ -416,9 +436,10 @@ function parsePromptTemplate(template, messages) {
 
 /**
  * Common function to generate a prompt from chat messages using LLM
+ * @param {number|null} fromMessageIndex - Index of the message to use as the "last" message, null for actual last
  * @returns {Promise<string>} The generated image prompt
  */
-async function generateImagePromptFromChat() {
+async function generateImagePromptFromChat(fromMessageIndex = null) {
     const context = getContext();
     const chat = context.chat;
 
@@ -431,7 +452,7 @@ async function generateImagePromptFromChat() {
     if (settings.use_raw) {
         // Use generateRaw with multiple messages
         const messageCount = settings.message_count || 5;
-        const visibleMessages = getVisibleMessages(chat, messageCount);
+        const visibleMessages = getVisibleMessages(chat, messageCount, fromMessageIndex);
 
         if (visibleMessages.length === 0) {
             throw new Error('No visible messages found to base prompt on.');
@@ -486,9 +507,11 @@ async function generateImagePromptFromChat() {
         imagePrompt = result;
     } else {
         // Use the original method with generateQuietPrompt
-        // Find the last message that is visible to the AI
+        // Find the last message that is visible to the AI, starting from specified index
         let lastVisibleMessage = '';
-        for (let i = chat.length - 1; i >= 0; i--) {
+        const startIndex = fromMessageIndex !== null ? fromMessageIndex : chat.length - 1;
+
+        for (let i = startIndex; i >= 0; i--) {
             const message = chat[i];
 
             // Skip messages that are invisible to AI
@@ -513,7 +536,7 @@ async function generateImagePromptFromChat() {
 
         // For backward compatibility, also check for new message tags in non-raw mode
         const messageCount = settings.message_count || 5;
-        const visibleMessages = getVisibleMessages(chat, messageCount);
+        const visibleMessages = getVisibleMessages(chat, messageCount, fromMessageIndex);
 
         let llmPrompt = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}';
 
@@ -689,10 +712,11 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
 
 /**
  * Generate prompt only (test mode)
+ * @param {number|null} fromMessageIndex - Index of the message to use as the "last" message
  */
-async function generatePromptOnly() {
+async function generatePromptOnly(fromMessageIndex = null) {
     try {
-        const imagePrompt = await generateImagePromptFromChat();
+        const imagePrompt = await generateImagePromptFromChat(fromMessageIndex);
 
         const context = getContext();
         const chat = context.chat;
@@ -725,13 +749,14 @@ async function generatePromptOnly() {
 
 /**
  * Generate image from chat using LLM-generated prompt
+ * @param {number|null} fromMessageIndex - Index of the message to use as the "last" message
  */
-async function generateImage() {
+async function generateImage(fromMessageIndex = null) {
     let generatingMessageId = null;
 
     try {
         // Generate the prompt first
-        const imagePrompt = await generateImagePromptFromChat();
+        const imagePrompt = await generateImagePromptFromChat(fromMessageIndex);
 
         // Add generating message
         generatingMessageId = await addGeneratingMessage();
@@ -759,9 +784,10 @@ async function generateImage() {
 }
 
 /**
- * Generate image directly from the last message (no LLM prompt generation)
+ * Generate image directly from a specific message (no LLM prompt generation)
+ * @param {number|null} messageIndex - Index of the message to use as prompt, null for last message
  */
-async function generateImageFromMessage() {
+async function generateImageFromMessage(messageIndex = null) {
     const context = getContext();
     const chat = context.chat;
 
@@ -770,11 +796,16 @@ async function generateImageFromMessage() {
         return;
     }
 
-    // Get the last message (even if invisible)
-    const lastMessageText = getLastMessage(chat);
+    // Get the specified message or the last message
+    let messageText;
+    if (messageIndex !== null) {
+        messageText = getMessageAtIndex(chat, messageIndex);
+    } else {
+        messageText = getLastMessage(chat);
+    }
 
-    if (!lastMessageText || !lastMessageText.trim()) {
-        toastr.error('Last message is empty or not found.');
+    if (!messageText || !messageText.trim()) {
+        toastr.error('Selected message is empty or not found.');
         return;
     }
 
@@ -785,7 +816,7 @@ async function generateImageFromMessage() {
         generatingMessageId = await addGeneratingMessage();
 
         // Use the message directly as prompt (no LLM processing)
-        const imagePrompt = lastMessageText.trim();
+        const imagePrompt = messageText.trim();
 
         // Generate and save the image
         const result = await generateAndSaveImage(imagePrompt);
@@ -809,6 +840,88 @@ async function generateImageFromMessage() {
     }
 }
 
+// Message action handlers - these get the message index from the context
+function handleMessageGenerateImage(messageId) {
+    generateImage(parseInt(messageId));
+}
+
+function handleMessageGeneratePrompt(messageId) {
+    generatePromptOnly(parseInt(messageId));
+}
+
+function handleMessageGenerateFromMessage(messageId) {
+    generateImageFromMessage(parseInt(messageId));
+}
+
+// Register message action buttons
+function registerMessageActions() {
+    // Register the message action buttons
+    eventSource.on('MESSAGE_CONTEXT_MENU_RENDERED', (messageId) => {
+        // Only add our buttons if they don't already exist
+        const menu = $('.extraMesDropdown:visible').first();
+        if (menu.length && !menu.find('.swarm-action').length) {
+
+            // Generate Image with LLM prompt
+            const generateImageAction = $(`
+                <div class="list-group-item flex-container flexGap5 swarm-action" data-message-id="${messageId}">
+                    <div class="fa-solid fa-wand-magic-sparkles extensionsMenuExtensionButton"></div>
+                    <span>Generate Image (LLM Prompt)</span>
+                </div>
+            `);
+
+            // Generate Prompt Only
+            const generatePromptAction = $(`
+                <div class="list-group-item flex-container flexGap5 swarm-action" data-message-id="${messageId}">
+                    <div class="fa-solid fa-pen-fancy extensionsMenuExtensionButton"></div>
+                    <span>Generate Prompt Only</span>
+                </div>
+            `);
+
+            // Generate Image from Message
+            const generateFromMessageAction = $(`
+                <div class="list-group-item flex-container flexGap5 swarm-action" data-message-id="${messageId}">
+                    <div class="fa-solid fa-image extensionsMenuExtensionButton"></div>
+                    <span>Generate from This Message</span>
+                </div>
+            `);
+
+            // Add click handlers
+            generateImageAction.on('click', function (e) {
+                e.preventDefault();
+                const msgId = $(this).data('message-id');
+                handleMessageGenerateImage(msgId);
+                // Close the dropdown
+                $('.extraMesDropdown').hide();
+            });
+
+            generatePromptAction.on('click', function (e) {
+                e.preventDefault();
+                const msgId = $(this).data('message-id');
+                handleMessageGeneratePrompt(msgId);
+                // Close the dropdown
+                $('.extraMesDropdown').hide();
+            });
+
+            generateFromMessageAction.on('click', function (e) {
+                e.preventDefault();
+                const msgId = $(this).data('message-id');
+                handleMessageGenerateFromMessage(msgId);
+                // Close the dropdown
+                $('.extraMesDropdown').hide();
+            });
+
+            // Add a separator before our actions
+            const separator = $('<hr class="margin0">');
+
+            // Append to menu
+            menu.append(separator);
+            menu.append(generateImageAction);
+            menu.append(generatePromptAction);
+            menu.append(generateFromMessageAction);
+        }
+    });
+}
+
 jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
     $("#extensions_settings").append(settingsHtml);
@@ -817,10 +930,13 @@ jQuery(async () => {
     const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
     $("#send_but").before(buttonHtml);
 
-    // Bind all three buttons
-    $("#swarm_generate_button").on("click", generateImage);
-    $("#swarm_generate_prompt_button").on("click", generatePromptOnly);
-    $("#swarm_generate_from_message_button").on("click", generateImageFromMessage);
+    // Bind all three buttons (original functionality)
+    $("#swarm_generate_button").on("click", () => generateImage());
+    $("#swarm_generate_prompt_button").on("click", () => generatePromptOnly());
+    $("#swarm_generate_from_message_button").on("click", () => generateImageFromMessage());
+
+    // Register message action buttons
+    registerMessageActions();
 
     await loadSettings();
 });
