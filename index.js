@@ -334,7 +334,7 @@ async function removeGeneratingSlice(context) {
         generatingMessageId = null;
 
         // Remove from the chat array
-        context.chat.splice(messageIdToRemove, 1);
+        //context.chat.splice(messageIdToRemove, 1);
 
         // Force a complete UI rebuild by triggering the chat changed event
         //await eventSource.emit(event_types.CHAT_CHANGED, -1);
