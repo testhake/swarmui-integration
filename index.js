@@ -174,16 +174,11 @@ async function getSavedT2IParams(sessionId) {
 }
 
 /**
- * Get the last X visible messages from the chat, starting from a specific index
- * @param {Array} chat - The chat array
- * @param {number} count - Number of messages to get
- * @param {number} fromIndex - Index to start from (inclusive), defaults to end of array
+ * Get the last X visible messages from the chat, starting from a specific message index
  */
-function getVisibleMessages(chat, count, fromIndex = null) {
+function getVisibleMessages(chat, count, fromMessageIndex = null) {
     const visibleMessages = [];
-
-    // If fromIndex is not specified, start from the end
-    const startIndex = fromIndex !== null ? fromIndex : chat.length - 1;
+    const startIndex = fromMessageIndex !== null ? fromMessageIndex : chat.length - 1;
 
     for (let i = startIndex; i >= 0 && visibleMessages.length < count; i--) {
         const message = chat[i];
@@ -209,20 +204,6 @@ function getVisibleMessages(chat, count, fromIndex = null) {
 }
 
 /**
- * Get a specific message from the chat
- * @param {Array} chat - The chat array
- * @param {number} messageIndex - Index of the message to get
- */
-function getMessageAtIndex(chat, messageIndex) {
-    if (!Array.isArray(chat) || messageIndex < 0 || messageIndex >= chat.length) {
-        return null;
-    }
-
-    const message = chat[messageIndex];
-    return message ? message.mes || '' : null;
-}
-
-/**
  * Get the last message from the chat (even if invisible)
  */
 function getLastMessage(chat) {
@@ -233,6 +214,18 @@ function getLastMessage(chat) {
     // Get the actual last message, regardless of visibility
     const lastMessage = chat[chat.length - 1];
     return lastMessage ? lastMessage.mes || '' : null;
+}
+
+/**
+ * Get a specific message by index
+ */
+function getMessageByIndex(chat, messageIndex) {
+    if (!Array.isArray(chat) || messageIndex < 0 || messageIndex >= chat.length) {
+        return null;
+    }
+
+    const message = chat[messageIndex];
+    return message ? message.mes || '' : null;
 }
 
 /**
@@ -436,7 +429,7 @@ function parsePromptTemplate(template, messages) {
 
 /**
  * Common function to generate a prompt from chat messages using LLM
- * @param {number|null} fromMessageIndex - Index of the message to use as the "last" message, null for actual last
+ * @param {number|null} fromMessageIndex - Optional: generate from specific message index
  * @returns {Promise<string>} The generated image prompt
  */
 async function generateImagePromptFromChat(fromMessageIndex = null) {
@@ -507,7 +500,7 @@ async function generateImagePromptFromChat(fromMessageIndex = null) {
         imagePrompt = result;
     } else {
         // Use the original method with generateQuietPrompt
-        // Find the last message that is visible to the AI, starting from specified index
+        // Find the last message that is visible to the AI
         let lastVisibleMessage = '';
         const startIndex = fromMessageIndex !== null ? fromMessageIndex : chat.length - 1;
 
@@ -712,7 +705,6 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
 
 /**
  * Generate prompt only (test mode)
- * @param {number|null} fromMessageIndex - Index of the message to use as the "last" message
  */
 async function generatePromptOnly(fromMessageIndex = null) {
     try {
@@ -749,7 +741,6 @@ async function generatePromptOnly(fromMessageIndex = null) {
 
 /**
  * Generate image from chat using LLM-generated prompt
- * @param {number|null} fromMessageIndex - Index of the message to use as the "last" message
  */
 async function generateImage(fromMessageIndex = null) {
     let generatingMessageId = null;
@@ -785,7 +776,6 @@ async function generateImage(fromMessageIndex = null) {
 
 /**
  * Generate image directly from a specific message (no LLM prompt generation)
- * @param {number|null} messageIndex - Index of the message to use as prompt, null for last message
  */
 async function generateImageFromMessage(messageIndex = null) {
     const context = getContext();
@@ -798,8 +788,8 @@ async function generateImageFromMessage(messageIndex = null) {
 
     // Get the specified message or the last message
     let messageText;
-    if (messageIndex !== null) {
-        messageText = getMessageAtIndex(chat, messageIndex);
+    if (messageIndex !== null && messageIndex >= 0 && messageIndex < chat.length) {
+        messageText = getMessageByIndex(chat, messageIndex);
     } else {
         messageText = getLastMessage(chat);
     }
@@ -840,102 +830,90 @@ async function generateImageFromMessage(messageIndex = null) {
     }
 }
 
-// Message action handlers - these get the message index from the context
-function handleMessageGenerateImage(messageId) {
-    generateImage(parseInt(messageId));
+// MESSAGE ACTION HANDLERS
+function handleMessageActionGenerate(messageId) {
+    const messageIndex = parseInt(messageId);
+    if (isNaN(messageIndex)) {
+        toastr.error('Invalid message ID');
+        return;
+    }
+    generateImage(messageIndex);
 }
 
-function handleMessageGeneratePrompt(messageId) {
-    generatePromptOnly(parseInt(messageId));
+function handleMessageActionPromptOnly(messageId) {
+    const messageIndex = parseInt(messageId);
+    if (isNaN(messageIndex)) {
+        toastr.error('Invalid message ID');
+        return;
+    }
+    generatePromptOnly(messageIndex);
 }
 
-function handleMessageGenerateFromMessage(messageId) {
-    generateImageFromMessage(parseInt(messageId));
+function handleMessageActionFromMessage(messageId) {
+    const messageIndex = parseInt(messageId);
+    if (isNaN(messageIndex)) {
+        toastr.error('Invalid message ID');
+        return;
+    }
+    generateImageFromMessage(messageIndex);
 }
 
-// Register message action buttons using SillyTavern's proper API
-function registerMessageActions() {
-    // Alternative approach: Add buttons directly to each message when it's rendered
-    eventSource.on(event_types.MESSAGE_RECEIVED, addSwarmButtonsToMessage);
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, addSwarmButtonsToMessage);
-    eventSource.on(event_types.USER_MESSAGE_RENDERED, addSwarmButtonsToMessage);
+// ADD MESSAGE ACTIONS
+function addMessageActions() {
+    // Register message action buttons in the action menu
+    eventSource.on(event_types.MESSAGE_RENDERED, (messageId) => {
+        if (messageId === null || messageId === undefined) return;
 
-    // Also add to existing messages
-    setTimeout(() => {
-        $('.mes').each(function () {
-            const messageId = $(this).attr('mesid');
-            if (messageId && !$(this).find('.swarm-message-button').length) {
-                addSwarmButtonsToMessage(messageId);
-            }
-        });
-    }, 1000);
+        const messageElement = $(`#chat .mes[mesid="${messageId}"]`);
+        if (!messageElement.length) return;
 
-    // Listen for dropdown creation
-    $(document).on('click', '.mes_button.extraMesButtonsHint', function () {
-        const messageBlock = $(this).closest('.mes');
-        const messageId = messageBlock.attr('mesid');
+        const actionsMenu = messageElement.find('.extraMesButtons');
+        if (!actionsMenu.length) return;
 
-        setTimeout(() => {
-            addButtonsToDropdown(messageId);
-        }, 50);
-    });
-}
+        // Check if our buttons already exist to avoid duplicates
+        if (actionsMenu.find('.swarm-action-button').length > 0) return;
 
-function addSwarmButtonsToMessage(messageId) {
-    // This function can be used to add buttons directly to messages if needed
-    // For now, we'll focus on the dropdown approach
-}
-
-function addButtonsToDropdown(messageId) {
-    const dropdown = $('.extraMesDropdown:visible');
-    if (dropdown.length && messageId && !dropdown.find('.swarm-message-action').length) {
-
-        // Add our buttons with proper styling
-        const swarmActions = $(`
-            <div class="list-group-item disabled">
-                <small><i class="fa-solid fa-wand-magic-sparkles"></i> SwarmUI</small>
-            </div>
-            <div class="list-group-item interactable swarm-message-action" data-action="generate-image" data-message-id="${messageId}">
-                <i class="fa-solid fa-wand-magic-sparkles margin-right-10px"></i>Generate Image (LLM)
-            </div>
-            <div class="list-group-item interactable swarm-message-action" data-action="generate-prompt" data-message-id="${messageId}">
-                <i class="fa-solid fa-pen-fancy margin-right-10px"></i>Generate Prompt Only
-            </div>
-            <div class="list-group-item interactable swarm-message-action" data-action="generate-from-message" data-message-id="${messageId}">
-                <i class="fa-solid fa-image margin-right-10px"></i>Generate from Message
+        // Create the action buttons
+        const generateButton = $(`
+            <div class="swarm-action-button mes_button extraMesButton" 
+                 title="Generate Image with SwarmUI (Prompt + Image)" 
+                 data-message-id="${messageId}">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
             </div>
         `);
 
-        // Add separator
-        dropdown.append('<hr class="margin0">');
-        dropdown.append(swarmActions);
+        const promptButton = $(`
+            <div class="swarm-action-button mes_button extraMesButton" 
+                 title="Generate Prompt Only" 
+                 data-message-id="${messageId}">
+                <i class="fa-solid fa-pen-fancy"></i>
+            </div>
+        `);
 
-        // Add event handlers
-        dropdown.find('.swarm-message-action').on('click', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
+        const fromMessageButton = $(`
+            <div class="swarm-action-button mes_button extraMesButton" 
+                 title="Generate Image from This Message" 
+                 data-message-id="${messageId}">
+                <i class="fa-solid fa-image"></i>
+            </div>
+        `);
 
-            const action = $(this).data('action');
-            const msgId = $(this).data('message-id');
-
-            // Close dropdown first
-            dropdown.hide();
-            $('.mes').removeClass('selected');
-
-            // Execute the appropriate action
-            switch (action) {
-                case 'generate-image':
-                    handleMessageGenerateImage(msgId);
-                    break;
-                case 'generate-prompt':
-                    handleMessageGeneratePrompt(msgId);
-                    break;
-                case 'generate-from-message':
-                    handleMessageGenerateFromMessage(msgId);
-                    break;
-            }
+        // Bind click events
+        generateButton.on('click', function () {
+            handleMessageActionGenerate($(this).data('message-id'));
         });
-    }
+
+        promptButton.on('click', function () {
+            handleMessageActionPromptOnly($(this).data('message-id'));
+        });
+
+        fromMessageButton.on('click', function () {
+            handleMessageActionFromMessage($(this).data('message-id'));
+        });
+
+        // Add buttons to the actions menu
+        actionsMenu.prepend(generateButton, promptButton, fromMessageButton);
+    });
 }
 
 jQuery(async () => {
@@ -946,13 +924,13 @@ jQuery(async () => {
     const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
     $("#send_but").before(buttonHtml);
 
-    // Bind all three buttons (original functionality)
+    // Bind the original buttons (these will work on the latest messages)
     $("#swarm_generate_button").on("click", () => generateImage());
     $("#swarm_generate_prompt_button").on("click", () => generatePromptOnly());
     $("#swarm_generate_from_message_button").on("click", () => generateImageFromMessage());
 
-    // Register message action buttons
-    registerMessageActions();
+    // Add message actions
+    addMessageActions();
 
     await loadSettings();
 });
