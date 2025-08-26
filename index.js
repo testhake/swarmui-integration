@@ -174,16 +174,13 @@ async function getSavedT2IParams(sessionId) {
 }
 
 /**
- * Get the last X visible messages from the chat, starting from a specific message index
- * @param {Array} chat - The chat array
- * @param {number} count - Number of messages to get
- * @param {number} fromIndex - Index to start from (inclusive)
+ * Get the last X visible messages from the chat, up to a specific message index
  */
-function getVisibleMessagesFromIndex(chat, count, fromIndex = null) {
+function getVisibleMessagesUpTo(chat, count, upToIndex = chat.length) {
     const visibleMessages = [];
-    const startIndex = fromIndex !== null ? fromIndex : chat.length - 1;
+    const endIndex = Math.min(upToIndex, chat.length);
 
-    for (let i = startIndex; i >= 0 && visibleMessages.length < count; i--) {
+    for (let i = endIndex - 1; i >= 0 && visibleMessages.length < count; i--) {
         const message = chat[i];
 
         // Skip messages that are invisible to AI
@@ -210,30 +207,32 @@ function getVisibleMessagesFromIndex(chat, count, fromIndex = null) {
  * Get the last X visible messages from the chat
  */
 function getVisibleMessages(chat, count) {
-    return getVisibleMessagesFromIndex(chat, count, null);
-}
-
-/**
- * Get the message at a specific index or the last message from the chat
- * @param {Array} chat - The chat array
- * @param {number} messageIndex - Optional specific message index
- */
-function getMessageAtIndex(chat, messageIndex = null) {
-    if (!Array.isArray(chat) || chat.length === 0) {
-        return null;
-    }
-
-    // Get specific message or the last message
-    const targetIndex = messageIndex !== null ? messageIndex : chat.length - 1;
-    const targetMessage = chat[targetIndex];
-    return targetMessage ? targetMessage.mes || '' : null;
+    return getVisibleMessagesUpTo(chat, count, chat.length);
 }
 
 /**
  * Get the last message from the chat (even if invisible)
  */
 function getLastMessage(chat) {
-    return getMessageAtIndex(chat, null);
+    if (!Array.isArray(chat) || chat.length === 0) {
+        return null;
+    }
+
+    // Get the actual last message, regardless of visibility
+    const lastMessage = chat[chat.length - 1];
+    return lastMessage ? lastMessage.mes || '' : null;
+}
+
+/**
+ * Get a specific message from the chat by index
+ */
+function getMessageAtIndex(chat, index) {
+    if (!Array.isArray(chat) || index < 0 || index >= chat.length) {
+        return null;
+    }
+
+    const message = chat[index];
+    return message ? message.mes || '' : null;
 }
 
 /**
@@ -437,10 +436,10 @@ function parsePromptTemplate(template, messages) {
 
 /**
  * Common function to generate a prompt from chat messages using LLM
- * @param {number} fromMessageIndex - Optional message index to start from
+ * @param {number} upToMessageIndex - Optional index to treat as the last message (for message actions)
  * @returns {Promise<string>} The generated image prompt
  */
-async function generateImagePromptFromChat(fromMessageIndex = null) {
+async function generateImagePromptFromChat(upToMessageIndex = null) {
     const context = getContext();
     const chat = context.chat;
 
@@ -453,7 +452,9 @@ async function generateImagePromptFromChat(fromMessageIndex = null) {
     if (settings.use_raw) {
         // Use generateRaw with multiple messages
         const messageCount = settings.message_count || 5;
-        const visibleMessages = getVisibleMessagesFromIndex(chat, messageCount, fromMessageIndex);
+        const visibleMessages = upToMessageIndex !== null
+            ? getVisibleMessagesUpTo(chat, messageCount, upToMessageIndex + 1)
+            : getVisibleMessages(chat, messageCount);
 
         if (visibleMessages.length === 0) {
             throw new Error('No visible messages found to base prompt on.');
@@ -508,10 +509,11 @@ async function generateImagePromptFromChat(fromMessageIndex = null) {
         imagePrompt = result;
     } else {
         // Use the original method with generateQuietPrompt
+        // Find the last message that is visible to the AI
         let lastVisibleMessage = '';
-        const startIndex = fromMessageIndex !== null ? fromMessageIndex : chat.length - 1;
+        const searchUpTo = upToMessageIndex !== null ? upToMessageIndex + 1 : chat.length;
 
-        for (let i = startIndex; i >= 0; i--) {
+        for (let i = searchUpTo - 1; i >= 0; i--) {
             const message = chat[i];
 
             // Skip messages that are invisible to AI
@@ -536,7 +538,9 @@ async function generateImagePromptFromChat(fromMessageIndex = null) {
 
         // For backward compatibility, also check for new message tags in non-raw mode
         const messageCount = settings.message_count || 5;
-        const visibleMessages = getVisibleMessagesFromIndex(chat, messageCount, fromMessageIndex);
+        const visibleMessages = upToMessageIndex !== null
+            ? getVisibleMessagesUpTo(chat, messageCount, upToMessageIndex + 1)
+            : getVisibleMessages(chat, messageCount);
 
         let llmPrompt = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}';
 
@@ -712,11 +716,10 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
 
 /**
  * Generate prompt only (test mode)
- * @param {number} fromMessageIndex - Optional message index to start from
  */
-async function generatePromptOnly(fromMessageIndex = null) {
+async function generatePromptOnly(upToMessageIndex = null) {
     try {
-        const imagePrompt = await generateImagePromptFromChat(fromMessageIndex);
+        const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
         const context = getContext();
         const chat = context.chat;
@@ -749,14 +752,13 @@ async function generatePromptOnly(fromMessageIndex = null) {
 
 /**
  * Generate image from chat using LLM-generated prompt
- * @param {number} fromMessageIndex - Optional message index to start from
  */
-async function generateImage(fromMessageIndex = null) {
+async function generateImage(upToMessageIndex = null) {
     let generatingMessageId = null;
 
     try {
         // Generate the prompt first
-        const imagePrompt = await generateImagePromptFromChat(fromMessageIndex);
+        const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
         // Add generating message
         generatingMessageId = await addGeneratingMessage();
@@ -784,8 +786,7 @@ async function generateImage(fromMessageIndex = null) {
 }
 
 /**
- * Generate image directly from a specific message (no LLM prompt generation)
- * @param {number} messageIndex - Specific message index to use, or null for last message
+ * Generate image directly from the last message (no LLM prompt generation)
  */
 async function generateImageFromMessage(messageIndex = null) {
     const context = getContext();
@@ -796,11 +797,16 @@ async function generateImageFromMessage(messageIndex = null) {
         return;
     }
 
-    // Get the message at specified index or the last message
-    const messageText = getMessageAtIndex(chat, messageIndex);
+    // Get the message text - either from specific index or last message
+    let messageText;
+    if (messageIndex !== null) {
+        messageText = getMessageAtIndex(chat, messageIndex);
+    } else {
+        messageText = getLastMessage(chat);
+    }
 
     if (!messageText || !messageText.trim()) {
-        toastr.error('Selected message is empty or not found.');
+        toastr.error('Message is empty or not found.');
         return;
     }
 
@@ -836,43 +842,139 @@ async function generateImageFromMessage(messageIndex = null) {
 }
 
 // MESSAGE ACTION HANDLERS
-function handleMessageActionGenerate(messageIndex) {
-    return () => generateImage(messageIndex);
+function setBusyIcon($icon, isBusy, originalClass) {
+    $icon.toggleClass(originalClass, !isBusy);
+    $icon.toggleClass('fa-hourglass-half', isBusy);
 }
 
-function handleMessageActionGeneratePrompt(messageIndex) {
-    return () => generatePromptOnly(messageIndex);
+// Message action: Generate image with LLM prompt
+async function swarmMessageGenerateImage(e) {
+    const $icon = $(e.currentTarget);
+    const $mes = $icon.closest('.mes');
+    const messageId = parseInt($mes.attr('mesid'));
+
+    if ($icon.hasClass('fa-hourglass-half')) {
+        console.log('SwarmUI: Previous generation still in progress...');
+        return;
+    }
+
+    try {
+        setBusyIcon($icon, true, 'fa-wand-magic-sparkles');
+        await generateImage(messageId);
+    } catch (error) {
+        console.error('SwarmUI message action failed:', error);
+        toastr.error(`Failed to generate image: ${error.message}`);
+    } finally {
+        setBusyIcon($icon, false, 'fa-wand-magic-sparkles');
+    }
 }
 
-function handleMessageActionGenerateFromMessage(messageIndex) {
-    return () => generateImageFromMessage(messageIndex);
+// Message action: Generate prompt only
+async function swarmMessageGeneratePrompt(e) {
+    const $icon = $(e.currentTarget);
+    const $mes = $icon.closest('.mes');
+    const messageId = parseInt($mes.attr('mesid'));
+
+    if ($icon.hasClass('fa-hourglass-half')) {
+        console.log('SwarmUI: Previous generation still in progress...');
+        return;
+    }
+
+    try {
+        setBusyIcon($icon, true, 'fa-pen-fancy');
+        await generatePromptOnly(messageId);
+    } catch (error) {
+        console.error('SwarmUI prompt generation failed:', error);
+        toastr.error(`Failed to generate prompt: ${error.message}`);
+    } finally {
+        setBusyIcon($icon, false, 'fa-pen-fancy');
+    }
 }
 
-// REGISTER MESSAGE ACTIONS
-function registerMessageActions() {
-    // Register the message actions with SillyTavern
-    eventSource.on(event_types.MESSAGE_CONTEXT_MENU, (data) => {
-        const messageIndex = data.index;
+// Message action: Generate image from message directly
+async function swarmMessageGenerateFromMessage(e) {
+    const $icon = $(e.currentTarget);
+    const $mes = $icon.closest('.mes');
+    const messageId = parseInt($mes.attr('mesid'));
 
-        // Add our custom actions to the message context menu
-        data.menu.push({
-            text: '🪄 SwarmUI: Generate Image',
-            icon: 'fa-wand-magic-sparkles',
-            action: handleMessageActionGenerate(messageIndex)
-        });
+    if ($icon.hasClass('fa-hourglass-half')) {
+        console.log('SwarmUI: Previous generation still in progress...');
+        return;
+    }
 
-        data.menu.push({
-            text: '✏️ SwarmUI: Generate Prompt Only',
-            icon: 'fa-pen-fancy',
-            action: handleMessageActionGeneratePrompt(messageIndex)
-        });
+    try {
+        setBusyIcon($icon, true, 'fa-image');
+        await generateImageFromMessage(messageId);
+    } catch (error) {
+        console.error('SwarmUI image from message failed:', error);
+        toastr.error(`Failed to generate image from message: ${error.message}`);
+    } finally {
+        setBusyIcon($icon, false, 'fa-image');
+    }
+}
 
-        data.menu.push({
-            text: '🖼️ SwarmUI: Image from Message',
-            icon: 'fa-image',
-            action: handleMessageActionGenerateFromMessage(messageIndex)
-        });
+// Function to inject SwarmUI buttons into message actions
+function injectSwarmUIButtons() {
+    // Add our buttons to any extraMesButtons containers that don't already have them
+    $('.extraMesButtons').each(function () {
+        const $container = $(this);
+
+        // Skip if we've already added our buttons to this container
+        if ($container.find('.swarm_mes_button').length > 0) {
+            return;
+        }
+
+        // Create our three buttons
+        const swarmButtons = `
+            <div title="SwarmUI: Generate Image (LLM Prompt)" class="mes_button swarm_mes_button swarm_mes_gen_image fa-solid fa-wand-magic-sparkles" data-i18n="[title]SwarmUI: Generate Image (LLM Prompt)"></div>
+            <div title="SwarmUI: Generate Prompt Only" class="mes_button swarm_mes_button swarm_mes_gen_prompt fa-solid fa-pen-fancy" data-i18n="[title]SwarmUI: Generate Prompt Only"></div>
+            <div title="SwarmUI: Generate Image from Message" class="mes_button swarm_mes_button swarm_mes_gen_from_msg fa-solid fa-image" data-i18n="[title]SwarmUI: Generate Image from Message"></div>
+        `;
+
+        // Insert after the existing sd_message_gen button if it exists, or at the beginning
+        const $sdButton = $container.find('.sd_message_gen');
+        if ($sdButton.length > 0) {
+            $sdButton.after(swarmButtons);
+        } else {
+            $container.prepend(swarmButtons);
+        }
     });
+}
+
+// Function to observe for new messages and inject buttons
+function observeForNewMessages() {
+    // Use MutationObserver to watch for new messages being added
+    const observer = new MutationObserver(function (mutations) {
+        let shouldInject = false;
+
+        mutations.forEach(function (mutation) {
+            if (mutation.type === 'childList') {
+                // Check if any new nodes contain message structures
+                mutation.addedNodes.forEach(function (node) {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        const $node = $(node);
+                        if ($node.hasClass('mes') || $node.find('.mes').length > 0) {
+                            shouldInject = true;
+                        }
+                    }
+                });
+            }
+        });
+
+        if (shouldInject) {
+            // Small delay to ensure DOM is ready
+            setTimeout(injectSwarmUIButtons, 50);
+        }
+    });
+
+    // Observe the chat container for changes
+    const chatContainer = document.getElementById('chat');
+    if (chatContainer) {
+        observer.observe(chatContainer, {
+            childList: true,
+            subtree: true
+        });
+    }
 }
 
 jQuery(async () => {
@@ -883,13 +985,26 @@ jQuery(async () => {
     const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
     $("#send_but").before(buttonHtml);
 
-    // Bind all three buttons (original functionality)
+    // Bind original buttons (keeping existing functionality)
     $("#swarm_generate_button").on("click", () => generateImage());
     $("#swarm_generate_prompt_button").on("click", () => generatePromptOnly());
     $("#swarm_generate_from_message_button").on("click", () => generateImageFromMessage());
 
-    // Register message actions for context menu
-    registerMessageActions();
+    // Bind message action buttons using event delegation
+    $(document).on('click', '.swarm_mes_gen_image', swarmMessageGenerateImage);
+    $(document).on('click', '.swarm_mes_gen_prompt', swarmMessageGeneratePrompt);
+    $(document).on('click', '.swarm_mes_gen_from_msg', swarmMessageGenerateFromMessage);
+
+    // Inject buttons into existing messages
+    setTimeout(injectSwarmUIButtons, 100);
+
+    // Set up observer for new messages
+    observeForNewMessages();
+
+    // Also inject buttons when chat changes (like switching characters)
+    eventSource.on(event_types.CHAT_CHANGED, () => {
+        setTimeout(injectSwarmUIButtons, 100);
+    });
 
     await loadSettings();
 });
