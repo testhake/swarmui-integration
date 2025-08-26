@@ -830,89 +830,57 @@ async function generateImageFromMessage(messageIndex = null) {
     }
 }
 
-// MESSAGE ACTION HANDLERS
-function handleMessageActionGenerate(messageId) {
-    const messageIndex = parseInt(messageId);
-    if (isNaN(messageIndex)) {
-        toastr.error('Invalid message ID');
-        return;
-    }
-    generateImage(messageIndex);
-}
-
-function handleMessageActionPromptOnly(messageId) {
-    const messageIndex = parseInt(messageId);
-    if (isNaN(messageIndex)) {
-        toastr.error('Invalid message ID');
-        return;
-    }
-    generatePromptOnly(messageIndex);
-}
-
-function handleMessageActionFromMessage(messageId) {
-    const messageIndex = parseInt(messageId);
-    if (isNaN(messageIndex)) {
-        toastr.error('Invalid message ID');
-        return;
-    }
-    generateImageFromMessage(messageIndex);
-}
-
-// ADD MESSAGE ACTIONS
-function addMessageActions() {
-    // Register message action buttons in the action menu
-    eventSource.on(event_types.MESSAGE_RENDERED, (messageId) => {
-        if (messageId === null || messageId === undefined) return;
-
-        const messageElement = $(`#chat .mes[mesid="${messageId}"]`);
-        if (!messageElement.length) return;
-
-        const actionsMenu = messageElement.find('.extraMesButtons');
-        if (!actionsMenu.length) return;
-
-        // Check if our buttons already exist to avoid duplicates
-        if (actionsMenu.find('.swarm-action-button').length > 0) return;
-
-        // Create the action buttons
-        const generateButton = $(`
-            <div class="swarm-action-button mes_button extraMesButton" 
-                 title="Generate Image with SwarmUI (Prompt + Image)" 
-                 data-message-id="${messageId}">
-                <i class="fa-solid fa-wand-magic-sparkles"></i>
-            </div>
-        `);
-
-        const promptButton = $(`
-            <div class="swarm-action-button mes_button extraMesButton" 
-                 title="Generate Prompt Only" 
-                 data-message-id="${messageId}">
-                <i class="fa-solid fa-pen-fancy"></i>
-            </div>
-        `);
-
-        const fromMessageButton = $(`
-            <div class="swarm-action-button mes_button extraMesButton" 
-                 title="Generate Image from This Message" 
-                 data-message-id="${messageId}">
-                <i class="fa-solid fa-image"></i>
-            </div>
-        `);
-
-        // Bind click events
-        generateButton.on('click', function () {
-            handleMessageActionGenerate($(this).data('message-id'));
+// REGISTER MESSAGE ACTIONS
+function registerMessageActions() {
+    // Register the three SwarmUI actions
+    eventSource.on(event_types.MESSAGE_ACTIONS_READY, () => {
+        // Generate Image with LLM Prompt
+        eventSource.emit(event_types.MESSAGE_ACTION_REGISTER, {
+            name: 'swarm_generate',
+            displayName: 'Generate Image (SwarmUI)',
+            icon: 'fa-wand-magic-sparkles',
+            condition: () => true, // Always show
+            callback: async (messageId) => {
+                const messageIndex = parseInt(messageId);
+                if (isNaN(messageIndex)) {
+                    toastr.error('Invalid message ID');
+                    return;
+                }
+                await generateImage(messageIndex);
+            }
         });
 
-        promptButton.on('click', function () {
-            handleMessageActionPromptOnly($(this).data('message-id'));
+        // Generate Prompt Only
+        eventSource.emit(event_types.MESSAGE_ACTION_REGISTER, {
+            name: 'swarm_prompt_only',
+            displayName: 'Generate Prompt Only (SwarmUI)',
+            icon: 'fa-pen-fancy',
+            condition: () => true,
+            callback: async (messageId) => {
+                const messageIndex = parseInt(messageId);
+                if (isNaN(messageIndex)) {
+                    toastr.error('Invalid message ID');
+                    return;
+                }
+                await generatePromptOnly(messageIndex);
+            }
         });
 
-        fromMessageButton.on('click', function () {
-            handleMessageActionFromMessage($(this).data('message-id'));
+        // Generate from Message
+        eventSource.emit(event_types.MESSAGE_ACTION_REGISTER, {
+            name: 'swarm_from_message',
+            displayName: 'Generate from This Message (SwarmUI)',
+            icon: 'fa-image',
+            condition: () => true,
+            callback: async (messageId) => {
+                const messageIndex = parseInt(messageId);
+                if (isNaN(messageIndex)) {
+                    toastr.error('Invalid message ID');
+                    return;
+                }
+                await generateImageFromMessage(messageIndex);
+            }
         });
-
-        // Add buttons to the actions menu
-        actionsMenu.prepend(generateButton, promptButton, fromMessageButton);
     });
 }
 
