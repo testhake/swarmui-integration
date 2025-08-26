@@ -175,10 +175,13 @@ async function getSavedT2IParams(sessionId) {
 
 /**
  * Get the last X visible messages from the chat, starting from a specific message index
+ * @param {Array} chat - The chat array
+ * @param {number} count - Number of messages to get
+ * @param {number} fromIndex - Index to start from (inclusive)
  */
-function getVisibleMessages(chat, count, fromMessageIndex = null) {
+function getVisibleMessagesFromIndex(chat, count, fromIndex = null) {
     const visibleMessages = [];
-    const startIndex = fromMessageIndex !== null ? fromMessageIndex : chat.length - 1;
+    const startIndex = fromIndex !== null ? fromIndex : chat.length - 1;
 
     for (let i = startIndex; i >= 0 && visibleMessages.length < count; i--) {
         const message = chat[i];
@@ -204,28 +207,33 @@ function getVisibleMessages(chat, count, fromMessageIndex = null) {
 }
 
 /**
- * Get the last message from the chat (even if invisible)
+ * Get the last X visible messages from the chat
  */
-function getLastMessage(chat) {
+function getVisibleMessages(chat, count) {
+    return getVisibleMessagesFromIndex(chat, count, null);
+}
+
+/**
+ * Get the message at a specific index or the last message from the chat
+ * @param {Array} chat - The chat array
+ * @param {number} messageIndex - Optional specific message index
+ */
+function getMessageAtIndex(chat, messageIndex = null) {
     if (!Array.isArray(chat) || chat.length === 0) {
         return null;
     }
 
-    // Get the actual last message, regardless of visibility
-    const lastMessage = chat[chat.length - 1];
-    return lastMessage ? lastMessage.mes || '' : null;
+    // Get specific message or the last message
+    const targetIndex = messageIndex !== null ? messageIndex : chat.length - 1;
+    const targetMessage = chat[targetIndex];
+    return targetMessage ? targetMessage.mes || '' : null;
 }
 
 /**
- * Get a specific message by index
+ * Get the last message from the chat (even if invisible)
  */
-function getMessageByIndex(chat, messageIndex) {
-    if (!Array.isArray(chat) || messageIndex < 0 || messageIndex >= chat.length) {
-        return null;
-    }
-
-    const message = chat[messageIndex];
-    return message ? message.mes || '' : null;
+function getLastMessage(chat) {
+    return getMessageAtIndex(chat, null);
 }
 
 /**
@@ -429,7 +437,7 @@ function parsePromptTemplate(template, messages) {
 
 /**
  * Common function to generate a prompt from chat messages using LLM
- * @param {number|null} fromMessageIndex - Optional: generate from specific message index
+ * @param {number} fromMessageIndex - Optional message index to start from
  * @returns {Promise<string>} The generated image prompt
  */
 async function generateImagePromptFromChat(fromMessageIndex = null) {
@@ -445,7 +453,7 @@ async function generateImagePromptFromChat(fromMessageIndex = null) {
     if (settings.use_raw) {
         // Use generateRaw with multiple messages
         const messageCount = settings.message_count || 5;
-        const visibleMessages = getVisibleMessages(chat, messageCount, fromMessageIndex);
+        const visibleMessages = getVisibleMessagesFromIndex(chat, messageCount, fromMessageIndex);
 
         if (visibleMessages.length === 0) {
             throw new Error('No visible messages found to base prompt on.');
@@ -500,7 +508,6 @@ async function generateImagePromptFromChat(fromMessageIndex = null) {
         imagePrompt = result;
     } else {
         // Use the original method with generateQuietPrompt
-        // Find the last message that is visible to the AI
         let lastVisibleMessage = '';
         const startIndex = fromMessageIndex !== null ? fromMessageIndex : chat.length - 1;
 
@@ -529,7 +536,7 @@ async function generateImagePromptFromChat(fromMessageIndex = null) {
 
         // For backward compatibility, also check for new message tags in non-raw mode
         const messageCount = settings.message_count || 5;
-        const visibleMessages = getVisibleMessages(chat, messageCount, fromMessageIndex);
+        const visibleMessages = getVisibleMessagesFromIndex(chat, messageCount, fromMessageIndex);
 
         let llmPrompt = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}';
 
@@ -705,6 +712,7 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
 
 /**
  * Generate prompt only (test mode)
+ * @param {number} fromMessageIndex - Optional message index to start from
  */
 async function generatePromptOnly(fromMessageIndex = null) {
     try {
@@ -741,6 +749,7 @@ async function generatePromptOnly(fromMessageIndex = null) {
 
 /**
  * Generate image from chat using LLM-generated prompt
+ * @param {number} fromMessageIndex - Optional message index to start from
  */
 async function generateImage(fromMessageIndex = null) {
     let generatingMessageId = null;
@@ -776,6 +785,7 @@ async function generateImage(fromMessageIndex = null) {
 
 /**
  * Generate image directly from a specific message (no LLM prompt generation)
+ * @param {number} messageIndex - Specific message index to use, or null for last message
  */
 async function generateImageFromMessage(messageIndex = null) {
     const context = getContext();
@@ -786,13 +796,8 @@ async function generateImageFromMessage(messageIndex = null) {
         return;
     }
 
-    // Get the specified message or the last message
-    let messageText;
-    if (messageIndex !== null && messageIndex >= 0 && messageIndex < chat.length) {
-        messageText = getMessageByIndex(chat, messageIndex);
-    } else {
-        messageText = getLastMessage(chat);
-    }
+    // Get the message at specified index or the last message
+    const messageText = getMessageAtIndex(chat, messageIndex);
 
     if (!messageText || !messageText.trim()) {
         toastr.error('Selected message is empty or not found.');
@@ -830,56 +835,42 @@ async function generateImageFromMessage(messageIndex = null) {
     }
 }
 
+// MESSAGE ACTION HANDLERS
+function handleMessageActionGenerate(messageIndex) {
+    return () => generateImage(messageIndex);
+}
+
+function handleMessageActionGeneratePrompt(messageIndex) {
+    return () => generatePromptOnly(messageIndex);
+}
+
+function handleMessageActionGenerateFromMessage(messageIndex) {
+    return () => generateImageFromMessage(messageIndex);
+}
+
 // REGISTER MESSAGE ACTIONS
 function registerMessageActions() {
-    // Register the three SwarmUI actions
-    eventSource.on(event_types.MESSAGE_ACTIONS_READY, () => {
-        // Generate Image with LLM Prompt
-        eventSource.emit(event_types.MESSAGE_ACTION_REGISTER, {
-            name: 'swarm_generate',
-            displayName: 'Generate Image (SwarmUI)',
+    // Register the message actions with SillyTavern
+    eventSource.on(event_types.MESSAGE_CONTEXT_MENU, (data) => {
+        const messageIndex = data.index;
+
+        // Add our custom actions to the message context menu
+        data.menu.push({
+            text: '🪄 SwarmUI: Generate Image',
             icon: 'fa-wand-magic-sparkles',
-            condition: () => true, // Always show
-            callback: async (messageId) => {
-                const messageIndex = parseInt(messageId);
-                if (isNaN(messageIndex)) {
-                    toastr.error('Invalid message ID');
-                    return;
-                }
-                await generateImage(messageIndex);
-            }
+            action: handleMessageActionGenerate(messageIndex)
         });
 
-        // Generate Prompt Only
-        eventSource.emit(event_types.MESSAGE_ACTION_REGISTER, {
-            name: 'swarm_prompt_only',
-            displayName: 'Generate Prompt Only (SwarmUI)',
+        data.menu.push({
+            text: '✏️ SwarmUI: Generate Prompt Only',
             icon: 'fa-pen-fancy',
-            condition: () => true,
-            callback: async (messageId) => {
-                const messageIndex = parseInt(messageId);
-                if (isNaN(messageIndex)) {
-                    toastr.error('Invalid message ID');
-                    return;
-                }
-                await generatePromptOnly(messageIndex);
-            }
+            action: handleMessageActionGeneratePrompt(messageIndex)
         });
 
-        // Generate from Message
-        eventSource.emit(event_types.MESSAGE_ACTION_REGISTER, {
-            name: 'swarm_from_message',
-            displayName: 'Generate from This Message (SwarmUI)',
+        data.menu.push({
+            text: '🖼️ SwarmUI: Image from Message',
             icon: 'fa-image',
-            condition: () => true,
-            callback: async (messageId) => {
-                const messageIndex = parseInt(messageId);
-                if (isNaN(messageIndex)) {
-                    toastr.error('Invalid message ID');
-                    return;
-                }
-                await generateImageFromMessage(messageIndex);
-            }
+            action: handleMessageActionGenerateFromMessage(messageIndex)
         });
     });
 }
@@ -892,12 +883,12 @@ jQuery(async () => {
     const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
     $("#send_but").before(buttonHtml);
 
-    // Bind the original buttons (these will work on the latest messages)
+    // Bind all three buttons (original functionality)
     $("#swarm_generate_button").on("click", () => generateImage());
     $("#swarm_generate_prompt_button").on("click", () => generatePromptOnly());
     $("#swarm_generate_from_message_button").on("click", () => generateImageFromMessage());
 
-    // Add message actions
+    // Register message actions for context menu
     registerMessageActions();
 
     await loadSettings();
