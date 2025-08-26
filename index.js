@@ -337,22 +337,22 @@ async function removeGeneratingSlice(context) {
         context.chat.splice(messageIdToRemove, 1);
 
         // Force a complete UI rebuild by triggering the chat changed event
-        await eventSource.emit(event_types.CHAT_CHANGED, -1);
+        //await eventSource.emit(event_types.CHAT_CHANGED, -1);
 
         // Save the chat to persist the changes
         await context.saveChat();
 
         // Additional DOM cleanup in case the above doesn't work
-        setTimeout(() => {
-            // Find and remove any remaining "Generating image" messages from the DOM
-            $('#chat .mes').each(function () {
-                const messageText = $(this).find('.mes_text').text().trim();
-                if (messageText === 'Generating image…' || messageText === 'Generating image...' ||
-                    messageText === 'Generating prompt…' || messageText === 'Generating prompt...') {
-                    $(this).closest('.mes').remove();
-                }
-            });
-        }, 50);
+        //setTimeout(() => {
+        //    // Find and remove any remaining "Generating image" messages from the DOM
+        //    $('#chat .mes').each(function () {
+        //        const messageText = $(this).find('.mes_text').text().trim();
+        //        if (messageText === 'Generating image…' || messageText === 'Generating image...' ||
+        //            messageText === 'Generating prompt…' || messageText === 'Generating prompt...') {
+        //            $(this).closest('.mes').remove();
+        //        }
+        //    });
+        //}, 50);
 
     } catch (error) {
         console.error('Error removing generating slice:', error);
@@ -688,8 +688,10 @@ async function addGeneratingMessage() {
     chat.push(generatingMessage);
     generatingMessageId = chat.length - 1;
 
-    // Only use addOneMessage to render the generating message
+    // Render the generating message
+    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
     context.addOneMessage(generatingMessage);
+    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
 
     return generatingMessageId;
 }
@@ -716,7 +718,9 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
     const imageMessageId = chat.length - 1;
 
     // Emit events to properly render the message with image
+    await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
     context.addOneMessage(imageMessage);
+    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
     await context.saveChat();
 
     return imageMessageId;
