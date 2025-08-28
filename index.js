@@ -9,13 +9,9 @@ const MODULE_NAME = 'swarmui-integration';
 const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
 
 let settings = {};
+let generatingMessageId = null;
 let cachedSessionId = null; // Cache the session ID
-// Remove these global variables:
-// let generatingMessageId = null;
-// let mainButtonsBusy = false;
-
-// Add this to track active generations
-const activeGenerations = new Set();
+let mainButtonsBusy = false; // Add this line
 
 // Method 1: Use SillyTavern's built-in notification system
 function playNotificationSound() {
@@ -34,30 +30,17 @@ function playNotificationSound() {
     }
 }
 // Helper function for main button busy states
-function setMainButtonsBusy(buttonId, isBusy) {
-    const buttonSelectors = {
-        'generate': '#swarm_generate_button',
-        'prompt': '#swarm_generate_prompt_button',
-        'message': '#swarm_generate_from_message_button'
-    };
+function setMainButtonsBusy(isBusy) {
+    mainButtonsBusy = isBusy;
 
-    const selector = buttonSelectors[buttonId];
-    if (!selector) return;
+    $('#swarm_generate_button i').toggleClass('fa-wand-magic-sparkles', !isBusy);
+    $('#swarm_generate_button i').toggleClass('fa-hourglass-half', isBusy);
 
-    const iconClasses = {
-        'generate': ['fa-wand-magic-sparkles', 'fa-hourglass-half'],
-        'prompt': ['fa-pen-fancy', 'fa-hourglass-half'],
-        'message': ['fa-image', 'fa-hourglass-half']
-    };
+    $('#swarm_generate_prompt_button i').toggleClass('fa-pen-fancy', !isBusy);
+    $('#swarm_generate_prompt_button i').toggleClass('fa-hourglass-half', isBusy);
 
-    const [normalClass, busyClass] = iconClasses[buttonId];
-
-    $(`${selector} i`).toggleClass(normalClass, !isBusy);
-    $(`${selector} i`).toggleClass(busyClass, isBusy);
-}
-// Modified function to create unique generation IDs
-function createGenerationId() {
-    return `gen_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    $('#swarm_generate_from_message_button i').toggleClass('fa-image', !isBusy);
+    $('#swarm_generate_from_message_button i').toggleClass('fa-hourglass-half', isBusy);
 }
 
 async function loadSettings() {
@@ -342,12 +325,16 @@ async function downloadImageAsBase64(imageUrl) {
 }
 
 /** Safely remove the "Generating image..." slice and force the chat UI to refresh. */
-async function removeGeneratingSlice(context, messageIndex) {
-    if (messageIndex === null || messageIndex === undefined) return;
+async function removeGeneratingSlice(context) {
+    if (generatingMessageId === null) return;
 
     try {
+        // Store the ID before clearing it
+        const messageIdToRemove = generatingMessageId;
+        generatingMessageId = null;
+
         // Remove from the chat array
-        context.chat.splice(messageIndex, 1);
+        context.chat.splice(messageIdToRemove, 1);
 
         // Force a complete UI rebuild by triggering the chat changed event
         await eventSource.emit(event_types.CHAT_CHANGED, -1);
@@ -357,9 +344,10 @@ async function removeGeneratingSlice(context, messageIndex) {
 
     } catch (error) {
         console.error('Error removing generating slice:', error);
+        // Fallback: force a page refresh if all else fails
+        // location.reload();
     }
 }
-
 
 // Enhanced function to parse the prompt template with message tags
 function parsePromptTemplate(template, messages) {
@@ -673,7 +661,7 @@ async function generateAndSaveImage(imagePrompt) {
 /**
  * Add a "generating..." message to chat and return its ID
  */
-async function addGeneratingMessage(generationId) {
+async function addGeneratingMessage() {
     const context = getContext();
     const chat = context.chat;
 
@@ -682,29 +670,24 @@ async function addGeneratingMessage(generationId) {
         is_system: true,
         mes: 'Generating image…',
         sendDate: Date.now(),
-        extra: {
-            isTemporary: true,
-            generationId: generationId  // Track which generation this belongs to
-        },
+        extra: { isTemporary: true },
     };
 
     chat.push(generatingMessage);
-    const messageIndex = chat.length - 1;
+    generatingMessageId = chat.length - 1;
 
     // Render the generating message
-    await eventSource.emit(event_types.MESSAGE_RECEIVED, messageIndex);
+    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
     context.addOneMessage(generatingMessage);
-    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, messageIndex);
+    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
 
-    return messageIndex;
+    return generatingMessageId;
 }
-
-
 
 /**
  * Add final image message to chat
  */
-async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Generated image', generationId = null) {
+async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Generated image') {
     const context = getContext();
     const chat = context.chat;
 
@@ -715,8 +698,7 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
         sendDate: Date.now(),
         extra: {
             image: savedImagePath,
-            title: imagePrompt,
-            generationId: generationId
+            title: imagePrompt
         },
     };
 
@@ -731,26 +713,18 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
 
     return imageMessageId;
 }
-;
-}
 
 /**
  * Generate prompt only (test mode)
  */
-async function generatePromptOnly(upToMessageIndex = null, buttonId = 'prompt') {
-    const generationId = createGenerationId();
-
-    if (activeGenerations.has(`${buttonId}_${upToMessageIndex || 'main'}`)) {
-        console.log('SwarmUI: Previous generation still in progress for this context...');
+async function generatePromptOnly(upToMessageIndex = null) {
+    if (mainButtonsBusy) {
+        console.log('SwarmUI: Previous generation still in progress...');
         return;
     }
 
-    const generationKey = `${buttonId}_${upToMessageIndex || 'main'}`;
-
     try {
-        activeGenerations.add(generationKey);
-        setMainButtonsBusy(buttonId, true);
-
+        setMainButtonsBusy(true);
         const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
         const context = getContext();
@@ -762,9 +736,6 @@ async function generatePromptOnly(upToMessageIndex = null, buttonId = 'prompt') 
             is_system: true,
             mes: `${imagePrompt}`,
             sendDate: Date.now(),
-            extra: {
-                generationId: generationId
-            }
         };
 
         chat.push(testMessage);
@@ -783,47 +754,39 @@ async function generatePromptOnly(upToMessageIndex = null, buttonId = 'prompt') 
         console.error('GeneratePrompt failed:', error);
         toastr.error(`Failed to generate prompt: ${error.message}`);
     } finally {
-        activeGenerations.delete(generationKey);
-        setMainButtonsBusy(buttonId, false);
+        setMainButtonsBusy(false);
     }
 }
-
 
 /**
  * Generate image from chat using LLM-generated prompt
  */
-async function generateImage(upToMessageIndex = null, buttonId = 'generate') {
-    const generationId = createGenerationId();
-    const generationKey = `${buttonId}_${upToMessageIndex || 'main'}`;
-
-    if (activeGenerations.has(generationKey)) {
-        console.log('SwarmUI: Previous generation still in progress for this context...');
+async function generateImage(upToMessageIndex = null) {
+    if (mainButtonsBusy) {
+        console.log('SwarmUI: Previous generation still in progress...');
         return;
     }
 
-    let generatingMessageIndex = null;
+    let generatingMessageId = null;
 
     try {
-        activeGenerations.add(generationKey);
-        setMainButtonsBusy(buttonId, true);
+        setMainButtonsBusy(true);
 
         // Generate the prompt first
         const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
         // Add generating message
-        generatingMessageIndex = await addGeneratingMessage(generationId);
+        //generatingMessageId = await addGeneratingMessage();
 
         // Generate and save the image
         const result = await generateAndSaveImage(imagePrompt);
 
         // Remove the generating message
-        if (generatingMessageIndex !== null) {
-            await removeGeneratingSlice(getContext(), generatingMessageIndex);
-            generatingMessageIndex = null;
-        }
+        //await removeGeneratingSlice(getContext());
+        generatingMessageId = null;
 
         // Add final image message
-        await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image', generationId);
+        await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image');
 
         playNotificationSound();
 
@@ -831,25 +794,20 @@ async function generateImage(upToMessageIndex = null, buttonId = 'generate') {
         console.error('Generation error:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
 
-        if (generatingMessageIndex !== null) {
-            await removeGeneratingSlice(getContext(), generatingMessageIndex);
+        if (generatingMessageId !== null) {
+            //await removeGeneratingSlice(getContext());
         }
     } finally {
-        activeGenerations.delete(generationKey);
-        setMainButtonsBusy(buttonId, false);
+        setMainButtonsBusy(false);
     }
 }
-
 
 /**
  * Generate image directly from the last message (no LLM prompt generation)
  */
-async function generateImageFromMessage(messageIndex = null, buttonId = 'message') {
-    const generationId = createGenerationId();
-    const generationKey = `${buttonId}_${messageIndex || 'main'}`;
-
-    if (activeGenerations.has(generationKey)) {
-        console.log('SwarmUI: Previous generation still in progress for this context...');
+async function generateImageFromMessage(messageIndex = null) {
+    if (mainButtonsBusy) {
+        console.log('SwarmUI: Previous generation still in progress...');
         return;
     }
 
@@ -874,14 +832,13 @@ async function generateImageFromMessage(messageIndex = null, buttonId = 'message
         return;
     }
 
-    let generatingMessageIndex = null;
+    let generatingMessageId = null;
 
     try {
-        activeGenerations.add(generationKey);
-        setMainButtonsBusy(buttonId, true);
+        setMainButtonsBusy(true);
 
         // Add generating message
-        generatingMessageIndex = await addGeneratingMessage(generationId);
+        //generatingMessageId = await addGeneratingMessage();
 
         // Use the message directly as prompt (no LLM processing)
         const imagePrompt = messageText.trim();
@@ -890,13 +847,11 @@ async function generateImageFromMessage(messageIndex = null, buttonId = 'message
         const result = await generateAndSaveImage(imagePrompt);
 
         // Remove the generating message
-        if (generatingMessageIndex !== null) {
-            await removeGeneratingSlice(getContext(), generatingMessageIndex);
-            generatingMessageIndex = null;
-        }
+        //await removeGeneratingSlice(context);
+        generatingMessageId = null;
 
         // Add final image message
-        await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image from message', generationId);
+        await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image from message');
 
         playNotificationSound();
 
@@ -904,96 +859,85 @@ async function generateImageFromMessage(messageIndex = null, buttonId = 'message
         console.error('Generation error:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
 
-        if (generatingMessageIndex !== null) {
-            await removeGeneratingSlice(getContext(), generatingMessageIndex);
+        if (generatingMessageId !== null) {
+            //await removeGeneratingSlice(getContext());
         }
     } finally {
-        activeGenerations.delete(generationKey);
-        setMainButtonsBusy(buttonId, false);
+        setMainButtonsBusy(false);
     }
 }
 
-
 // MESSAGE ACTION HANDLERS
-function setBusyIcon($icon, isBusy, originalClass, messageId = null) {
-    const key = messageId !== null ? `msg_${messageId}` : 'global';
-
+function setBusyIcon($icon, isBusy, originalClass) {
     $icon.toggleClass(originalClass, !isBusy);
     $icon.toggleClass('fa-hourglass-half', isBusy);
 }
-
 
 // Message action: Generate image with LLM prompt
 async function swarmMessageGenerateImage(e) {
     const $icon = $(e.currentTarget);
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
-    const generationKey = `message_gen_${messageId}`;
 
-    if (activeGenerations.has(generationKey) || $icon.hasClass('fa-hourglass-half')) {
-        console.log('SwarmUI: Previous generation still in progress for this message...');
+    if ($icon.hasClass('fa-hourglass-half')) {
+        console.log('SwarmUI: Previous generation still in progress...');
         return;
     }
 
     try {
-        setBusyIcon($icon, true, 'fa-wand-magic-sparkles', messageId);
-        await generateImage(messageId, 'generate');
+        setBusyIcon($icon, true, 'fa-wand-magic-sparkles');
+        await generateImage(messageId);
     } catch (error) {
         console.error('SwarmUI message action failed:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
     } finally {
-        setBusyIcon($icon, false, 'fa-wand-magic-sparkles', messageId);
+        setBusyIcon($icon, false, 'fa-wand-magic-sparkles');
     }
 }
-
 
 // Message action: Generate prompt only
 async function swarmMessageGeneratePrompt(e) {
     const $icon = $(e.currentTarget);
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
-    const generationKey = `message_prompt_${messageId}`;
 
-    if (activeGenerations.has(generationKey) || $icon.hasClass('fa-hourglass-half')) {
-        console.log('SwarmUI: Previous generation still in progress for this message...');
+    if ($icon.hasClass('fa-hourglass-half')) {
+        console.log('SwarmUI: Previous generation still in progress...');
         return;
     }
 
     try {
-        setBusyIcon($icon, true, 'fa-pen-fancy', messageId);
-        await generatePromptOnly(messageId, 'prompt');
+        setBusyIcon($icon, true, 'fa-pen-fancy');
+        await generatePromptOnly(messageId);
     } catch (error) {
         console.error('SwarmUI prompt generation failed:', error);
         toastr.error(`Failed to generate prompt: ${error.message}`);
     } finally {
-        setBusyIcon($icon, false, 'fa-pen-fancy', messageId);
+        setBusyIcon($icon, false, 'fa-pen-fancy');
     }
 }
-
 
 // Message action: Generate image from message directly
 async function swarmMessageGenerateFromMessage(e) {
     const $icon = $(e.currentTarget);
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
-    const generationKey = `message_direct_${messageId}`;
 
-    if (activeGenerations.has(generationKey) || $icon.hasClass('fa-hourglass-half')) {
-        console.log('SwarmUI: Previous generation still in progress for this message...');
+    if ($icon.hasClass('fa-hourglass-half')) {
+        console.log('SwarmUI: Previous generation still in progress...');
         return;
     }
 
     try {
-        setBusyIcon($icon, true, 'fa-image', messageId);
-        await generateImageFromMessage(messageId, 'message');
+        setBusyIcon($icon, true, 'fa-image');
+        await generateImageFromMessage(messageId);
     } catch (error) {
         console.error('SwarmUI image from message failed:', error);
         toastr.error(`Failed to generate image from message: ${error.message}`);
     } finally {
-        setBusyIcon($icon, false, 'fa-image', messageId);
+        setBusyIcon($icon, false, 'fa-image');
     }
 }
-
 
 // Function to inject SwarmUI buttons into message actions
 function injectSwarmUIButtons() {
