@@ -45,14 +45,8 @@ export async function generateRawWithStops({
         [prompt, api, instructOverride, quietToLoud, systemPrompt, responseLength, trimNames, prefill, jsonSchema, stopStrings] = arguments;
     }
 
-    // Handle the case where api might be an HTMLSelectElement
-    if (api && typeof api === 'object' && api.value !== undefined) {
-        api = api.value;
-    }
-
-    // Access main_api from global scope if not provided
     if (!api) {
-        api = window.main_api || globalThis.main_api || 'openai'; // fallback to openai if main_api not found
+        api = main_api;
     }
 
     const abortController = new AbortController();
@@ -63,41 +57,33 @@ export async function generateRawWithStops({
     let originalOpenAIMaxTokens = null;
 
     // construct final prompt from the input. Can either be a string or an array of chat-style messages.
-    prompt = window.createRawPrompt ? window.createRawPrompt(prompt, api, instructOverride, quietToLoud, systemPrompt, prefill) : prompt;
+    prompt = createRawPrompt(prompt, api, instructOverride, quietToLoud, systemPrompt, prefill);
 
     try {
         // Handle custom response length without TempResponseLength class
         if (responseLengthCustomized) {
-            const oaiSettings = getOaiSettings();
             if (api === 'openai') {
-                originalOpenAIMaxTokens = oaiSettings.openai_max_tokens;
-                oaiSettings.openai_max_tokens = responseLength;
+                originalOpenAIMaxTokens = oai_settings.openai_max_tokens;
+                oai_settings.openai_max_tokens = responseLength;
             } else {
-                originalResponseLength = getCurrentAmountGen();
-                if (window.amount_gen !== undefined) window.amount_gen = responseLength;
-                else if (globalThis.amount_gen !== undefined) globalThis.amount_gen = responseLength;
+                originalResponseLength = amount_gen;
+                amount_gen = responseLength;
             }
         }
 
         /** @type {object|any[]} */
         let generateData = {};
-        const currentAmountGen = getCurrentAmountGen();
-        const currentMaxContext = getCurrentMaxContext();
 
         switch (api) {
             case 'kobold':
             case 'koboldhorde':
-                const kaiSettings = getKaiSettings();
-                const koboldaiSettings = getKoboldaiSettings();
-                const koboldaiSettingNames = getKoboldaiSettingNames();
-
-                if (kaiSettings.preset_settings === 'gui') {
+                if (kai_settings.preset_settings === 'gui') {
                     generateData = {
                         prompt: prompt,
                         gui_settings: true,
-                        max_length: currentAmountGen,
-                        max_context_length: currentMaxContext,
-                        api_server: kaiSettings.api_server
+                        max_length: amount_gen,
+                        max_context_length: max_context,
+                        api_server: kai_settings.api_server
                     };
                     // Add stop strings for Kobold
                     if (stopStrings.length > 0) {
@@ -105,18 +91,8 @@ export async function generateRawWithStops({
                     }
                 } else {
                     const isHorde = api === 'koboldhorde';
-                    const koboldSettings = koboldaiSettings[koboldaiSettingNames[kaiSettings.preset_settings]];
-                    // Try to use the global function if available, otherwise create basic data
-                    if (window.getKoboldGenerationData) {
-                        generateData = window.getKoboldGenerationData(prompt.toString(), koboldSettings, currentAmountGen, currentMaxContext, isHorde, 'quiet');
-                    } else {
-                        generateData = {
-                            prompt: prompt.toString(),
-                            max_length: currentAmountGen,
-                            max_context_length: currentMaxContext,
-                            ...koboldSettings
-                        };
-                    }
+                    const koboldSettings = koboldai_settings[koboldai_setting_names[kai_settings.preset_settings]];
+                    generateData = getKoboldGenerationData(prompt.toString(), koboldSettings, amount_gen, max_context, isHorde, 'quiet');
                     // Add stop strings for Kobold
                     if (stopStrings.length > 0) {
                         generateData.stop_sequence = stopStrings;
@@ -124,24 +100,8 @@ export async function generateRawWithStops({
                 }
                 break;
             case 'novel': {
-                const novelaiSettings = getNovelaiSettings();
-                const novelaiSettingNames = getNovelaiSettingNames();
-                const naiSettings = getNaiSettings();
-                const novelSettings = novelaiSettings[novelaiSettingNames[naiSettings.preset_settings_novel]];
-
-                // Try to use the global function if available, otherwise create basic data
-                if (window.getNovelGenerationData) {
-                    generateData = window.getNovelGenerationData(prompt, novelSettings, currentAmountGen, false, false, null, 'quiet');
-                } else {
-                    generateData = {
-                        input: prompt,
-                        model: novelSettings?.model || 'kayra-v1',
-                        parameters: {
-                            max_length: currentAmountGen,
-                            ...novelSettings?.parameters
-                        }
-                    };
-                }
+                const novelSettings = novelai_settings[novelai_setting_names[nai_settings.preset_settings_novel]];
+                generateData = getNovelGenerationData(prompt, novelSettings, amount_gen, false, false, null, 'quiet');
                 // Add stop strings for Novel AI (they use 'stop' parameter)
                 if (stopStrings.length > 0) {
                     generateData.parameters = generateData.parameters || {};
@@ -150,33 +110,7 @@ export async function generateRawWithStops({
                 break;
             }
             case 'textgenerationwebui':
-                // Try to use the global function if available, otherwise create basic data
-                if (window.getTextGenGenerationData) {
-                    generateData = await window.getTextGenGenerationData(prompt, currentAmountGen, false, false, null, 'quiet');
-                } else {
-                    generateData = {
-                        prompt: prompt,
-                        max_length: currentAmountGen,
-                        do_sample: true,
-                        temperature: 0.7,
-                        top_p: 0.9,
-                        typical_p: 1,
-                        repetition_penalty: 1,
-                        encoder_repetition_penalty: 1,
-                        top_k: 0,
-                        min_length: 0,
-                        no_repeat_ngram_size: 0,
-                        num_beams: 1,
-                        penalty_alpha: 0,
-                        length_penalty: 1,
-                        early_stopping: false,
-                        seed: -1,
-                        add_bos_token: true,
-                        truncation_length: currentMaxContext,
-                        ban_eos_token: false,
-                        skip_special_tokens: true,
-                    };
-                }
+                generateData = await getTextGenGenerationData(prompt, amount_gen, false, false, null, 'quiet');
                 // Add stop strings for TextGenWebUI
                 if (stopStrings.length > 0) {
                     generateData.stopping_strings = stopStrings;
@@ -192,31 +126,19 @@ export async function generateRawWithStops({
         let data = {};
 
         if (api === 'koboldhorde') {
-            // Try to use the global function if available
-            if (window.generateHorde) {
-                data = await window.generateHorde(prompt.toString(), generateData, abortController.signal, false);
-            } else {
-                throw new Error('generateHorde function not available');
-            }
+            data = await generateHorde(prompt.toString(), generateData, abortController.signal, false);
         } else if (api === 'openai') {
             // For OpenAI, we need to modify the request to include stop strings
             const requestOptions = { jsonSchema };
             if (stopStrings.length > 0) {
                 requestOptions.stop = stopStrings;
             }
-            // Try to use the global function if available
-            if (window.sendOpenAIRequest) {
-                data = await window.sendOpenAIRequest('quiet', generateData, abortController.signal, requestOptions);
-            } else {
-                throw new Error('sendOpenAIRequest function not available');
-            }
+            data = await sendOpenAIRequest('quiet', generateData, abortController.signal, requestOptions);
         } else {
-            const generateUrl = window.getGenerateUrl ? window.getGenerateUrl(api) : '/api/v1/generate';
-            const headers = window.getRequestHeaders ? window.getRequestHeaders() : { 'Content-Type': 'application/json' };
-
+            const generateUrl = getGenerateUrl(api);
             const response = await fetch(generateUrl, {
                 method: 'POST',
-                headers: headers,
+                headers: getRequestHeaders(),
                 cache: 'no-cache',
                 body: JSON.stringify(generateData),
                 signal: abortController.signal,
@@ -237,26 +159,19 @@ export async function generateRawWithStops({
         }
 
         if (jsonSchema) {
-            return window.extractJsonFromData ? window.extractJsonFromData(data, { mainApi: api }) : JSON.stringify(data);
+            return extractJsonFromData(data, { mainApi: api });
         }
 
         // format result, exclude user prompt bias
-        const getMessage = window.extractMessageFromData ? window.extractMessageFromData(data) : (data.results?.[0]?.text || data.choices?.[0]?.message?.content || data.response || '');
-
-        let message;
-        if (window.cleanUpMessage) {
-            message = window.cleanUpMessage({
-                getMessage: getMessage,
-                isImpersonate: false,
-                isContinue: false,
-                displayIncompleteSentences: true,
-                includeUserPromptBias: false,
-                trimNames: trimNames,
-                trimWrongNames: trimNames,
-            });
-        } else {
-            message = getMessage;
-        }
+        let message = cleanUpMessage({
+            getMessage: extractMessageFromData(data),
+            isImpersonate: false,
+            isContinue: false,
+            displayIncompleteSentences: true,
+            includeUserPromptBias: false,
+            trimNames: trimNames,
+            trimWrongNames: trimNames,
+        });
 
         if (!message) {
             throw new Error('No message generated');
@@ -277,12 +192,10 @@ export async function generateRawWithStops({
     } finally {
         // Restore original response length settings
         if (responseLengthCustomized) {
-            const oaiSettings = getOaiSettings();
             if (api === 'openai' && originalOpenAIMaxTokens !== null) {
-                oaiSettings.openai_max_tokens = originalOpenAIMaxTokens;
+                oai_settings.openai_max_tokens = originalOpenAIMaxTokens;
             } else if (originalResponseLength !== null) {
-                if (window.amount_gen !== undefined) window.amount_gen = originalResponseLength;
-                else if (globalThis.amount_gen !== undefined) globalThis.amount_gen = originalResponseLength;
+                amount_gen = originalResponseLength;
             }
         }
     }
