@@ -509,7 +509,17 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
                 systemPrompt: systemPrompt,
                 prompt: prompt,
                 prefill: '',
-                stopStrings: ['<END>', '\n\n'],
+                stopStrings: [
+                    '<|im_end|>',     // ChatML end token (most important for Mistral)
+                    '</s>',           // End of sequence token
+                    '[/INST]',        // End of instruction token
+                    '\n\n',          // Double newline
+                    '###',           // Common delimiter
+                    'USER:',          // Role indicator
+                    'ASSISTANT:',     // Role indicator
+                    '<|endoftext|>',  // Generic end token
+                    '<END>'           // Your custom token
+                ],
             });
             console.log('generateRaw result:', result);
             imagePrompt = result;
