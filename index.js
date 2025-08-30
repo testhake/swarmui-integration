@@ -507,8 +507,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
             const result = await generateRaw({
                 systemPrompt: systemPrompt,
                 prompt: prompt,
-                prefill: '',
-                responseLength: 1500 // Limit response length
+                prefill: ''
             });
             console.log('generateRaw result:', result);
             imagePrompt = result;
@@ -567,6 +566,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
     imagePrompt = imagePrompt
         .replace(/\*/g, "")
         .replace(/\"/g, "")
+        .replace(/`/g, "")
         .replace(/_/g, " ")
         .replace(/buttocks/g, "ass")
         .replace(/looking at viewer/g, "eye contact")
