@@ -1,20 +1,20 @@
 // Core OpenAI handling
-import { sendOpenAIRequest } from '../../../openai.js';
+import { sendOpenAIRequest } from '../../../../openai.js';
 
 // Data extraction / cleanup helpers (same ones generateRaw uses)
-import { extractMessageFromData, extractJsonFromData } from '../../../st-context.js';
-import { cleanUpMessage } from '../../../power-user.js';
+import { extractMessageFromData, extractJsonFromData } from '../../../../st-context.js';
+import { cleanUpMessage } from '../../../../power-user.js';
 
 // Kobold/Novel/Textgen wrappers
-import { getKoboldGenerationData, kai_settings, koboldai_settings, koboldai_setting_names } from '../../../kai-settings.js';
-import { getNovelGenerationData, nai_settings, novelai_settings, novelai_setting_names } from '../../../nai-settings.js';
-import { getTextGenGenerationData } from '../../../textgen-settings.js';
+import { getKoboldGenerationData, kai_settings, koboldai_settings, koboldai_setting_names } from '../../../../kai-settings.js';
+import { getNovelGenerationData, nai_settings, novelai_settings, novelai_setting_names } from '../../../../nai-settings.js';
+import { getTextGenGenerationData } from '../../../../textgen-settings.js';
 
 // Utilities
-import { getGenerateUrl, getRequestHeaders } from '../../../utils.js';
+import { getGenerateUrl, getRequestHeaders } from '../../../../utils.js';
 
 // TempResponseLength hook (used in raw gen)
-import { TempResponseLength } from '../../../PromptManager.js';
+import { TempResponseLength } from '../../../../PromptManager.js';
 
 // generateRawSafe.js
 // A drop-in replacement for generateRaw that attempts to:
