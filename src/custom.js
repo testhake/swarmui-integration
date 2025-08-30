@@ -130,6 +130,7 @@ export async function generateRawWithStops({
         } else if (api === 'openai') {
             // For OpenAI/Mistral, we need to modify the request to include stop strings
             const requestOptions = { jsonSchema };
+            console.log('OpenAI/Mistral requestOptions:', JSON.stringify(requestOptions));
             if (stopStrings.length > 0) {
                 requestOptions.stop = stopStrings;
                 console.log('Adding stop strings to OpenAI request:', stopStrings);
