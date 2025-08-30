@@ -54,6 +54,7 @@ async function loadSettings() {
     $('#swarm_llm_prompt').val(settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}').trigger('input');
     $('#swarm_append_prompt').prop('checked', !!settings.append_prompt).trigger('input');
     $('#swarm_use_raw').prop('checked', !!settings.use_raw).trigger('input');
+    $('#swarm_use_custom_generate_raw').prop('checked', !!settings.use_custom_generate_raw).trigger('input');
     $('#swarm_message_count').val(settings.message_count || 5).trigger('input');
 
     // Load cached session ID if it exists in settings
@@ -492,20 +493,31 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
         }
 
         try {
-            const result = await generateRawWithStops({
-                systemPrompt: systemPrompt,
-                prompt: prompt,
-                prefill: '',
-                stopStrings: [
-                    '<|im_end|>',     // ChatML end token (most important for Mistral)
-                    '</s>',           // End of sequence token
-                    '[/INST]',        // End of instruction token
-                    '<|endoftext|>',  // Generic end token
-                    '<END>'           // Your custom token
-                ],
-            });
-            console.log('generateRaw result:', result);
-            imagePrompt = result;
+            if (settings.use_custom_generate_raw) {
+                const result = await generateRawWithStops({
+                    systemPrompt: systemPrompt,
+                    prompt: prompt,
+                    prefill: '',
+                    stopStrings: [
+                        '<|im_end|>',     // ChatML end token (most important for Mistral)
+                        '</s>',           // End of sequence token
+                        '[/INST]',        // End of instruction token
+                        '<|endoftext|>',  // Generic end token
+                        '<END>'           // Your custom token
+                    ],
+                });
+                console.log('generateRaw result:', result);
+                imagePrompt = result;
+            }
+            else {
+                const result = await generateRaw({
+                    systemPrompt: systemPrompt,
+                    prompt: prompt,
+                    prefill: ''
+                });
+                console.log('generateRaw result:', result);
+                imagePrompt = result;
+            }
         } catch (error) {
             console.error('generateRaw failed:', error);
             throw error;
