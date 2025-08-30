@@ -507,7 +507,8 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
             const result = await generateRaw({
                 systemPrompt: systemPrompt,
                 prompt: prompt,
-                prefill: ''
+                prefill: '',
+                responseLength: 1500 // Limit response length
             });
             console.log('generateRaw result:', result);
             imagePrompt = result;
