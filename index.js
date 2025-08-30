@@ -355,43 +355,21 @@ function parsePromptTemplate(template, messages) {
     // First replace message tags
     const processedTemplate = replaceMessageTags(template, messages);
 
-    // Regular expressions to match different message types
-    const systemRegex = /\[system\](.*?)\[\/system\]/gs;
-    const userRegex = /\[user\](.*?)\[\/user\]/gs;
-    const assistantRegex = /\[assistant\](.*?)\[\/assistant\]/gs;
+    // Combined regex to match all message types while preserving order
+    const messageRegex = /\[(system|user|assistant)\](.*?)\[\/\1\]/gs;
 
     const parsedMessages = [];
     let hasStructuredMessages = false;
-
-    // Extract system messages
     let match;
-    while ((match = systemRegex.exec(processedTemplate)) !== null) {
-        hasStructuredMessages = true;
-        const content = match[1].trim();
-        parsedMessages.push({
-            role: 'system',
-            content: content
-        });
-    }
 
-    // Extract user messages
-    userRegex.lastIndex = 0; // Reset regex
-    while ((match = userRegex.exec(processedTemplate)) !== null) {
+    // Process matches in the order they appear in the template
+    while ((match = messageRegex.exec(processedTemplate)) !== null) {
         hasStructuredMessages = true;
-        const content = match[1].trim();
-        parsedMessages.push({
-            role: 'user',
-            content: content
-        });
-    }
+        const role = match[1]; // system, user, or assistant
+        const content = match[2].trim();
 
-    // Extract assistant messages
-    assistantRegex.lastIndex = 0; // Reset regex
-    while ((match = assistantRegex.exec(processedTemplate)) !== null) {
-        hasStructuredMessages = true;
-        const content = match[1].trim();
         parsedMessages.push({
-            role: 'assistant',
+            role: role,
             content: content
         });
     }
@@ -436,6 +414,7 @@ function parsePromptTemplate(template, messages) {
 
     return parsedMessages;
 }
+
 
 /**
  * Common function to generate a prompt from chat messages using LLM
