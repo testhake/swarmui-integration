@@ -28,24 +28,6 @@ import { getTextGenGenerationData } from '../../../../textgen-settings.js';
  * @param {GenerateRawWithStopsParams} params Parameters for generating a message
  * @returns {Promise<string>} Generated message
  */
-/**
- * Generates a message using the provided prompt with support for stopping strings.
- * This is a modified version of generateRaw that includes stopping string functionality.
- * @typedef {object} GenerateRawWithStopsParams
- * @prop {string | object[]} [prompt] Prompt to generate a message from. Can be a string or an array of chat-style messages, i.e. [{role: '', content: ''}, ...]
- * @prop {string} [api] API to use. Main API is used if not specified.
- * @prop {boolean} [instructOverride] true to override instruct mode, false to use the default value
- * @prop {boolean} [quietToLoud] true to generate a message in system mode, false to generate a message in character mode
- * @prop {string} [systemPrompt] System prompt to use.
- * @prop {number} [responseLength] Maximum response length. If unset, the global default value is used.
- * @prop {boolean} [trimNames] Whether to allow trimming "{{user}}:" and "{{char}}:" from the response.
- * @prop {string} [prefill] An optional prefill for the prompt.
- * @prop {object} [jsonSchema] JSON schema to use for the structured generation. Usually requires a special instruction.
- * @prop {string[]} [stopStrings] Array of strings that should stop generation when encountered.
- * @prop {string[]} [stops] Alias for stopStrings for backwards compatibility.
- * @param {GenerateRawWithStopsParams} params Parameters for generating a message
- * @returns {Promise<string>} Generated message
- */
 export async function generateRawWithStops({
     prompt = '',
     api = null,
@@ -56,17 +38,11 @@ export async function generateRawWithStops({
     trimNames = true,
     prefill = '',
     jsonSchema = null,
-    stopStrings = [],
-    stops = [] // Alias for stopStrings
+    stopStrings = []
 } = {}) {
     if (arguments.length > 0 && typeof arguments[0] !== 'object') {
         console.trace('generateRawWithStops called with positional arguments. Please use an object instead.');
-        [prompt, api, instructOverride, quietToLoud, systemPrompt, responseLength, trimNames, prefill, jsonSchema, stopStrings, stops] = arguments;
-    }
-
-    // Use stops as alias for stopStrings if provided
-    if (stops.length > 0 && stopStrings.length === 0) {
-        stopStrings = stops;
+        [prompt, api, instructOverride, quietToLoud, systemPrompt, responseLength, trimNames, prefill, jsonSchema, stopStrings] = arguments;
     }
 
     if (!api) {
@@ -152,12 +128,14 @@ export async function generateRawWithStops({
         if (api === 'koboldhorde') {
             data = await generateHorde(prompt.toString(), generateData, abortController.signal, false);
         } else if (api === 'openai') {
-            // For OpenAI, we need to modify the request to include stop strings
+            // For OpenAI/Mistral, we need to modify the request to include stop strings
             const requestOptions = { jsonSchema };
             if (stopStrings.length > 0) {
                 requestOptions.stop = stopStrings;
+                console.log('Adding stop strings to OpenAI request:', stopStrings);
             }
             data = await sendOpenAIRequest('quiet', generateData, abortController.signal, requestOptions);
+            console.log('OpenAI/Mistral response:', JSON.stringify(data, null, 2));
         } else {
             const generateUrl = getGenerateUrl(api);
             const response = await fetch(generateUrl, {
@@ -175,6 +153,11 @@ export async function generateRawWithStops({
             data = await response.json();
         }
 
+        // Check if generation stopped due to length limit and warn
+        if (api === 'openai' && data && data.choices && data.choices[0] && data.choices[0].finish_reason === 'length') {
+            console.warn('Generation stopped due to length limit. Consider using shorter responseLength or more specific stop strings.');
+        }
+
         // should only happen for text completions
         // other frontend paths do not return data if calling the backend fails,
         // they throw things instead
@@ -186,35 +169,33 @@ export async function generateRawWithStops({
             return extractJsonFromData(data, { mainApi: api });
         }
 
-        // Handle different response formats (especially for MistralAI)
-        let rawMessage;
+        // Handle Mistral's specific response format
+        let extractedMessage;
         try {
-            rawMessage = extractMessageFromData(data);
+            extractedMessage = extractMessageFromData(data);
         } catch (error) {
-            // Fallback for MistralAI format where content is an array
-            console.log('Standard extraction failed, trying MistralAI format...', data);
-            if (data.choices && data.choices[0] && data.choices[0].message) {
+            console.warn('Standard message extraction failed, trying Mistral format:', error);
+            // Handle Mistral's response format specifically
+            if (data && data.choices && data.choices[0] && data.choices[0].message) {
                 const messageContent = data.choices[0].message.content;
                 if (Array.isArray(messageContent) && messageContent.length > 0) {
-                    // Handle array format - take the first element's text
-                    rawMessage = messageContent[0].text || messageContent[0].content || messageContent[0];
-                    if (typeof rawMessage === 'object' && rawMessage.text) {
-                        rawMessage = rawMessage.text;
+                    // Mistral returns content as array of objects
+                    if (typeof messageContent[0] === 'object' && messageContent[0].text) {
+                        extractedMessage = messageContent[0].text;
+                    } else if (typeof messageContent[0] === 'string') {
+                        extractedMessage = messageContent[0];
+                    } else {
+                        extractedMessage = JSON.stringify(messageContent[0]);
                     }
                 } else if (typeof messageContent === 'string') {
-                    rawMessage = messageContent;
-                } else {
-                    console.error('Unexpected message content format:', messageContent);
-                    rawMessage = JSON.stringify(messageContent);
+                    extractedMessage = messageContent;
                 }
-            } else {
-                throw error;
             }
         }
 
         // format result, exclude user prompt bias
         let message = cleanUpMessage({
-            getMessage: () => rawMessage,
+            getMessage: extractedMessage,
             isImpersonate: false,
             isContinue: false,
             displayIncompleteSentences: true,
@@ -224,13 +205,8 @@ export async function generateRawWithStops({
         });
 
         if (!message) {
-            console.error('cleanUpMessage returned empty result. Raw message was:', rawMessage);
-            // If cleanUpMessage fails, try to use the raw message directly
-            message = rawMessage && typeof rawMessage === 'string' ? rawMessage.trim() : '';
-        }
-
-        if (!message) {
-            throw new Error('No message generated - both extraction and cleanup failed');
+            console.error('Failed to extract message. Raw data:', JSON.stringify(data, null, 2));
+            throw new Error('No message generated');
         }
 
         // Additional client-side stop string processing as fallback
