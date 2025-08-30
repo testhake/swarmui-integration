@@ -2,7 +2,7 @@ import { generateRaw } from '../../../../../script.js';
 
 
 // Add this custom generateRaw method to your script
-async function customGenerateRaw({ prompt = '', systemPrompt = '', responseLength = 9000, prefill = '' } = {}) {
+export async function customGenerateRaw({ prompt = '', systemPrompt = '', responseLength = 9000, prefill = '' } = {}) {
     const context = getContext();
 
     // Get the current API settings
