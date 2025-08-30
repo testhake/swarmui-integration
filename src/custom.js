@@ -1,128 +1,204 @@
-import { generateRaw, getContext } from '../../../../../script.js';
+import {
+    createRawPrompt,
+    getKoboldGenerationData,
+    getNovelGenerationData,
+    getTextGenGenerationData,
+    sendOpenAIRequest,
+    extractJsonFromData,
+    extractMessageFromData,
+    cleanUpMessage,
+    getGenerateUrl,
+    getRequestHeaders, } from '../../../../../script.js';
+import { getContext } from '../../../../extensions.js';
 
+// generateRawSafe.js
+// A drop-in replacement for generateRaw that attempts to:
+//  - Enforce a max completion length via per-request fields (max_tokens / max_length)
+//  - Support explicit stop sequences
+//  - Avoid relying solely on TempResponseLength (which in some setups may be ignored)
+//  - Keep the same return behaviour as the original generateRaw (returns generated string or throws)
 
-// Add this custom generateRaw method to your script
-export async function customGenerateRaw({ prompt = '', systemPrompt = '', responseLength = 9000, prefill = '' } = {}) {
-    const context = getContext();
+// Usage in your extension:
+// import { generateRawSafe } from './src/generateRawSafe.js';
+// const message = await generateRawSafe({ prompt: myPrompt, responseLength: 200, stops: ['<END>', '\n\n'] });
 
-    // Get the current API settings
-    const api = context.main_api;
-
-    if (api !== 'openai') {
-        throw new Error('Custom generateRaw only supports OpenAI-compatible APIs');
+export async function generateRawSafe({
+    prompt = '',
+    api = null,
+    instructOverride = false,
+    quietToLoud = false,
+    systemPrompt = '',
+    responseLength = null, // numeric maximum completion tokens you want
+    trimNames = true,
+    prefill = '',
+    jsonSchema = null,
+    stops = null, // array of stop strings or a single string
+} = {}) {
+    if (arguments.length > 0 && typeof arguments[0] !== 'object') {
+        console.trace('generateRawSafe called with positional arguments. Please use an object instead.');
+        [prompt, api, instructOverride, quietToLoud, systemPrompt, responseLength, trimNames, prefill, jsonSchema, stops] = arguments;
     }
 
-    // Prepare the messages array
-    const messages = [];
+    if (!api) api = main_api; // reuse global main_api as the original function does
 
-    // Add system prompt if provided
-    if (systemPrompt) {
-        messages.push({
-            role: 'system',
-            content: systemPrompt
-        });
-    }
+    const abortController = new AbortController();
 
-    // Handle prompt - can be string or array of messages
-    if (Array.isArray(prompt)) {
-        messages.push(...prompt);
-    } else if (typeof prompt === 'string' && prompt.trim()) {
-        messages.push({
-            role: 'user',
-            content: prompt
-        });
-    }
-
-    // Prepare the request body with stopping sequences
-    const requestBody = {
-        model: context.openai_setting_names[context.oai_settings.openai_model] || 'gpt-3.5-turbo',
-        messages: messages,
-        max_tokens: responseLength,
-        temperature: context.oai_settings.temp_openai || 0.7,
-        top_p: context.oai_settings.top_p_openai || 1,
-        frequency_penalty: context.oai_settings.freq_pen_openai || 0,
-        presence_penalty: context.oai_settings.pres_pen_openai || 0,
-        // Add stopping sequences to prevent runaway generation
-        stop: [
-            "\n\n\n", // Multiple newlines
-            "###", // Common delimiter
-            "---", // Another delimiter
-            "[END]", // Explicit end marker
-            "<|endoftext|>", // Common AI end token
-            "\n\nUser:", // Conversation turn
-            "\n\nHuman:", // Conversation turn
-            "\n\nAssistant:", // Conversation turn
-        ]
-    };
-
-    // Add prefill if provided (for Claude-style models)
-    if (prefill) {
-        messages.push({
-            role: 'assistant',
-            content: prefill
-        });
-    }
+    // Build the final prompt exactly like the original implementation does
+    prompt = createRawPrompt(prompt, api, instructOverride, quietToLoud, systemPrompt, prefill);
 
     try {
-        // Get the API endpoint
-        const apiUrl = context.api_server_openai + '/v1/chat/completions';
+        /**
+         * We intentionally avoid exclusively relying on TempResponseLength.save/restore because
+         * some backends (or gateway layers) may ignore that global shimming. Instead, we try to
+         * append token/stop configuration directly into the payload that will be sent to the
+         * model service (for example openai-compatible fields: max_tokens, stop).
+         */
 
-        // Make the request
-        const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${context.oai_settings.api_key_openai}`,
-                ...getRequestHeaders()
-            },
-            body: JSON.stringify(requestBody)
-        });
+        let generateData = {};
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(`API request failed: ${response.status} - ${errorData.error?.message || response.statusText}`);
-        }
+        switch (api) {
+            case 'kobold':
+            case 'koboldhorde':
+                // preserve existing behaviour but prefer to set max_length if provided
+                if (kai_settings.preset_settings === 'gui') {
+                    generateData = { prompt: prompt, gui_settings: true, max_length: responseLength || amount_gen, max_context_length: max_context, api_server: kai_settings.api_server };
+                } else {
+                    const isHorde = api === 'koboldhorde';
+                    const koboldSettings = koboldai_settings[koboldai_setting_names[kai_settings.preset_settings]];
+                    // try to pass responseLength as max_length (most kobold forks use numeric max_length)
+                    generateData = getKoboldGenerationData(prompt.toString(), koboldSettings, responseLength || amount_gen, max_context, isHorde, 'quiet');
+                }
+                break;
 
-        const data = await response.json();
+            case 'novel': {
+                const novelSettings = novelai_settings[novelai_setting_names[nai_settings.preset_settings_novel]];
+                // novelai uses max_length style param
+                generateData = getNovelGenerationData(prompt, novelSettings, responseLength || amount_gen, false, false, null, 'quiet');
+                break;
+            }
 
-        // Extract the generated content
-        if (!data.choices || data.choices.length === 0) {
-            throw new Error('No choices returned from API');
-        }
+            case 'textgenerationwebui':
+                generateData = await getTextGenGenerationData(prompt, responseLength || amount_gen, false, false, null, 'quiet');
+                break;
 
-        const choice = data.choices[0];
-        let content = choice.message?.content || '';
+            case 'openai': {
+                // For openai/chat-like backends, the original code passes the prompt object directly.
+                // Here we augment that object with explicit max_tokens and stop to force the completion limit.
+                generateData = prompt; // should be a chat message object
 
-        // If we have a prefill, remove it from the beginning of the response
-        if (prefill && content.startsWith(prefill)) {
-            content = content.substring(prefill.length);
-        }
+                // If the caller asked for responseLength, prefer that as max_tokens
+                if (typeof responseLength === 'number' && Number.isFinite(responseLength) && responseLength > 0) {
+                    // Different gateways accept different main-field names; OpenAI accepts max_tokens
+                    // Put it directly on the payload which sendOpenAIRequest will send through.
+                    generateData.max_tokens = responseLength;
+                }
 
-        // Clean up the response
-        content = content.trim();
+                // Accept both array or single string stop sequences
+                if (stops) {
+                    generateData.stop = Array.isArray(stops) ? stops : [stops];
+                }
 
-        // Remove any stop sequences that might have been included
-        const stopSequences = requestBody.stop;
-        for (const stopSeq of stopSequences) {
-            if (content.endsWith(stopSeq)) {
-                content = content.substring(0, content.length - stopSeq.length).trim();
+                // Avoid depending solely on TempResponseLength; still keep eventHook compatibility
+                var eventHook = TempResponseLength?.setupEventHook ? TempResponseLength.setupEventHook(api) : () => { };
+                if (typeof responseLength === 'number' && TempResponseLength?.save) {
+                    // This tries to preserve the original behavior for other parts of the frontend
+                    TempResponseLength.save(api, responseLength);
+                }
+
+                try {
+                    const data = await sendOpenAIRequest('quiet', generateData, abortController.signal, { jsonSchema });
+
+                    // The rest of this block mirrors original extract/cleanup logic
+                    if (data.error) {
+                        throw new Error(data.response || JSON.stringify(data));
+                    }
+
+                    if (jsonSchema) {
+                        return extractJsonFromData(data, { mainApi: api });
+                    }
+
+                    const message = cleanUpMessage({
+                        getMessage: extractMessageFromData(data),
+                        isImpersonate: false,
+                        isContinue: false,
+                        displayIncompleteSentences: true,
+                        includeUserPromptBias: false,
+                        trimNames: trimNames,
+                        trimWrongNames: trimNames,
+                    });
+
+                    if (!message) {
+                        throw new Error('No message generated');
+                    }
+
+                    return message;
+                } finally {
+                    // restore the TempResponseLength state if we changed it
+                    if (typeof responseLength === 'number' && TempResponseLength?.isCustomized && TempResponseLength.isCustomized()) {
+                        TempResponseLength.restore(api);
+                        TempResponseLength.removeEventHook(api, eventHook);
+                    }
+                }
+            }
+
+            default: {
+                // Generic HTTP generation path for other APIs
+                const generateUrl = getGenerateUrl(api);
+
+                // If a responseLength is provided, we try to inject it into the payload in a best-effort way
+                // Many backends accept a field named max_length or max_tokens. We'll try both patterns.
+                generateData = { prompt: prompt };
+                if (typeof responseLength === 'number') {
+                    generateData.max_length = responseLength;
+                    generateData.max_tokens = responseLength;
+                }
+                if (stops) {
+                    generateData.stop = Array.isArray(stops) ? stops : [stops];
+                }
+
+                const response = await fetch(generateUrl, {
+                    method: 'POST',
+                    headers: getRequestHeaders(),
+                    cache: 'no-cache',
+                    body: JSON.stringify(generateData),
+                    signal: abortController.signal,
+                });
+
+                if (!response.ok) {
+                    // attempt to read the body for a helpful error
+                    let body = '';
+                    try { body = await response.text(); } catch (e) { /* ignore */ }
+                    throw new Error(body || `Generation API returned ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.response || JSON.stringify(data));
+                }
+
+                if (jsonSchema) {
+                    return extractJsonFromData(data, { mainApi: api });
+                }
+
+                const message = cleanUpMessage({
+                    getMessage: extractMessageFromData(data),
+                    isImpersonate: false,
+                    isContinue: false,
+                    displayIncompleteSentences: true,
+                    includeUserPromptBias: false,
+                    trimNames: trimNames,
+                    trimWrongNames: trimNames,
+                });
+
+                if (!message) {
+                    throw new Error('No message generated');
+                }
+
+                return message;
             }
         }
-
-        if (!content) {
-            throw new Error('No content generated');
-        }
-
-        console.log('Custom generateRaw response:', {
-            finish_reason: choice.finish_reason,
-            content_length: content.length,
-            usage: data.usage
-        });
-
-        return content;
-
-    } catch (error) {
-        console.error('Custom generateRaw failed:', error);
-        throw error;
+    } finally {
+        // no-op; nothing special to clean up here in this wrapper
     }
 }

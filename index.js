@@ -4,7 +4,7 @@ import { generateQuietPrompt, generateRaw } from '../../../../script.js';
 import { debounce_timeout } from '../../../constants.js';
 import { saveBase64AsFile, getBase64Async, getCharaFilename } from '../../../utils.js';
 import { humanizedDateTime } from '../../../RossAscends-mods.js';
-import { customGenerateRaw } from './src/custom.js';
+import { generateRawSafe } from './src/custom.js';
 
 const MODULE_NAME = 'swarmui-integration';
 const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
@@ -505,10 +505,11 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
         }
 
         try {
-            const result = await customGenerateRaw({
+            const result = await generateRawSafe({
                 systemPrompt: systemPrompt,
                 prompt: prompt,
-                prefill: ''
+                prefill: '',
+                stops: ['<END>', '\n\n'],
             });
             console.log('generateRaw result:', result);
             imagePrompt = result;
