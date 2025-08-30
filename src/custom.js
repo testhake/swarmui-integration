@@ -306,14 +306,3 @@ export async function generateImagePromptWithStops(params = {}) {
         stopStrings: params.stopStrings || defaultStops
     });
 }
-
-// Alternative function with a more specific name for image prompt generation
-export async function generateImagePromptWithStops(params = {}) {
-    // Default stop strings commonly used for danbooru tag generation
-    const defaultStops = ['\n\n', '###', 'USER:', 'ASSISTANT:', '<|im_end|>', '<|endoftext|>'];
-
-    return generateRawWithStops({
-        ...params,
-        stopStrings: params.stopStrings || defaultStops
-    });
-}
