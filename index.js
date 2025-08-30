@@ -507,7 +507,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
             const result = await generateRaw({
                 systemPrompt: systemPrompt,
                 prompt: prompt,
-                prefill: '',
+                prefill: 'Image Prompt: ',
                 stop: ["\n\n", "---", "END_PROMPT"], // Add stop sequences
                 max_tokens: 1500 // Limit response length
             });
