@@ -8,7 +8,7 @@ import { cleanUpMessage, extractMessageFromData, extractJsonFromData, getGenerat
 // Kobold/Novel/Textgen wrappers
 import { kai_settings, koboldai_settings, koboldai_setting_names, getKoboldGenerationData } from '../../../../kai-settings.js';
 import { novelai_settings, novelai_setting_names, nai_settings, getNovelGenerationData } from '../../../../nai-settings.js';
-import { generateHorde } from '../../../../scripts/horde.js';
+import { generateHorde } from '../../../../horde.js';
 import { getTextGenGenerationData } from '../../../../textgen-settings.js';
 
 /**
