@@ -2,11 +2,13 @@
 import { sendOpenAIRequest } from '../../../../openai.js';
 
 // Data extraction / cleanup helpers (same ones generateRaw uses)
+import { main_api, amount_gen, max_context, oai_settings } from '../../../../../script.js';
 import { cleanUpMessage, extractMessageFromData, extractJsonFromData, getGenerateUrl, getRequestHeaders, createRawPrompt } from '../../../../../script.js';
 
 // Kobold/Novel/Textgen wrappers
-import { getKoboldGenerationData, kai_settings, koboldai_settings, koboldai_setting_names } from '../../../../kai-settings.js';
-import { getNovelGenerationData, nai_settings, novelai_settings, novelai_setting_names } from '../../../../nai-settings.js';
+import { kai_settings, koboldai_settings, koboldai_setting_names, getKoboldGenerationData } from '../../../../kai-settings.js';
+import { novelai_settings, novelai_setting_names, nai_settings, getNovelGenerationData } from '../../../../nai-settings.js';
+import { generateHorde } from '../../../../scripts/horde.js';
 import { getTextGenGenerationData } from '../../../../textgen-settings.js';
 
 /**
