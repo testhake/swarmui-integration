@@ -509,7 +509,6 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
                 systemPrompt: systemPrompt,
                 prompt: prompt,
                 prefill: '',
-                responseLength: 1500,
                 stopStrings: ['<END>', '\n\n'],
             });
             console.log('generateRaw result:', result);
