@@ -62,17 +62,6 @@ export async function generateRawWithStops({
     let originalResponseLength = null;
     let originalOpenAIMaxTokens = null;
 
-    // Access global variables - these should be available in the global scope
-    const getCurrentAmountGen = () => window.amount_gen || globalThis.amount_gen || 150;
-    const getCurrentMaxContext = () => window.max_context || globalThis.max_context || 2048;
-    const getOaiSettings = () => window.oai_settings || globalThis.oai_settings || {};
-    const getKaiSettings = () => window.kai_settings || globalThis.kai_settings || {};
-    const getKoboldaiSettings = () => window.koboldai_settings || globalThis.koboldai_settings || {};
-    const getKoboldaiSettingNames = () => window.koboldai_setting_names || globalThis.koboldai_setting_names || {};
-    const getNovelaiSettings = () => window.novelai_settings || globalThis.novelai_settings || {};
-    const getNovelaiSettingNames = () => window.novelai_setting_names || globalThis.novelai_setting_names || {};
-    const getNaiSettings = () => window.nai_settings || globalThis.nai_settings || {};
-
     // construct final prompt from the input. Can either be a string or an array of chat-style messages.
     prompt = window.createRawPrompt ? window.createRawPrompt(prompt, api, instructOverride, quietToLoud, systemPrompt, prefill) : prompt;
 
