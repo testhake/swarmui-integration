@@ -12,22 +12,69 @@ import { generateHorde } from '../../../../horde.js';
 import { getTextGenGenerationData } from '../../../../textgen-settings.js';
 
 /**
- * Generates a message using the provided prompt with support for stopping strings.
- * This is a modified version of generateRaw that includes stopping string functionality.
- * @typedef {object} GenerateRawWithStopsParams
- * @prop {string | object[]} [prompt] Prompt to generate a message from. Can be a string or an array of chat-style messages, i.e. [{role: '', content: ''}, ...]
- * @prop {string} [api] API to use. Main API is used if not specified.
- * @prop {boolean} [instructOverride] true to override instruct mode, false to use the default value
- * @prop {boolean} [quietToLoud] true to generate a message in system mode, false to generate a message in character mode
- * @prop {string} [systemPrompt] System prompt to use.
- * @prop {number} [responseLength] Maximum response length. If unset, the global default value is used.
- * @prop {boolean} [trimNames] Whether to allow trimming "{{user}}:" and "{{char}}:" from the response.
- * @prop {string} [prefill] An optional prefill for the prompt.
- * @prop {object} [jsonSchema] JSON schema to use for the structured generation. Usually requires a special instruction.
- * @prop {string[]} [stopStrings] Array of strings that should stop generation when encountered.
- * @param {GenerateRawWithStopsParams} params Parameters for generating a message
- * @returns {Promise<string>} Generated message
+ * Direct OpenAI/Mistral API call with stop strings support
+ * This bypasses sendOpenAIRequest to ensure stop strings work properly
  */
+async function directOpenAIRequest(messages, stopStrings, signal, jsonSchema = null) {
+    const requestBody = {
+        model: oai_settings.openai_model,
+        messages: messages,
+        temperature: oai_settings.temp_openai,
+        top_p: oai_settings.top_p_openai,
+        frequency_penalty: oai_settings.freq_pen_openai,
+        presence_penalty: oai_settings.pres_pen_openai,
+        max_tokens: oai_settings.openai_max_tokens,
+        stream: false,
+        safe_prompt: false,
+    };
+
+    if (stopStrings && stopStrings.length > 0) {
+        requestBody.stop = stopStrings;
+    }
+
+    if (jsonSchema) {
+        requestBody.response_format = {
+            type: "json_schema",
+            json_schema: jsonSchema
+        };
+    }
+
+    console.log('Direct OpenAI request body:', JSON.stringify(requestBody, null, 2));
+
+    const response = await fetch(`${oai_settings.api_url_scale}/chat/completions`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${oai_settings.api_key_openai}`,
+            ...getRequestHeaders(),
+        },
+        body: JSON.stringify(requestBody),
+        signal: signal,
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`OpenAI API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+    }
+
+    return await response.json();
+}
+/**
+ * This is a modified version of generateRaw that includes stopping string functionality.
+ * @typedef { object } GenerateRawWithStopsParams
+    * @prop { string | object[] } [prompt] Prompt to generate a message from.Can be a string or an array of chat - style messages, i.e. [{ role: '', content: '' }, ...]
+ * @prop { string } [api] API to use.Main API is used if not specified.
+ * @prop { boolean } [instructOverride] true to override instruct mode, false to use the default value
+    * @prop { boolean } [quietToLoud] true to generate a message in system mode, false to generate a message in character mode
+        * @prop { string } [systemPrompt] System prompt to use.
+ * @prop { number } [responseLength] Maximum response length.If unset, the global default value is used.
+ * @prop { boolean } [trimNames] Whether to allow trimming "{{user}}:" and "{{char}}:" from the response.
+ * @prop { string } [prefill] An optional prefill for the prompt.
+ * @prop { object }[jsonSchema] JSON schema to use for the structured generation.Usually requires a special instruction.
+ * @prop { string[] } [stopStrings] Array of strings that should stop generation when encountered.
+ * @param { GenerateRawWithStopsParams } params Parameters for generating a message
+    * @returns { Promise < string >} Generated message
+        */
 export async function generateRawWithStops({
     prompt = '',
     api = null,
@@ -128,13 +175,16 @@ export async function generateRawWithStops({
         if (api === 'koboldhorde') {
             data = await generateHorde(prompt.toString(), generateData, abortController.signal, false);
         } else if (api === 'openai') {
-            // For OpenAI/Mistral, we need to modify the request to include stop strings
-            const requestOptions = { jsonSchema };
+            // For OpenAI/Mistral, try multiple approaches to get stop strings working
             if (stopStrings.length > 0) {
-                requestOptions.stop = stopStrings;
-                console.log('Adding stop strings to OpenAI request:', stopStrings);
+                console.log('Attempting direct OpenAI request with stop strings:', stopStrings);
+                // Use direct API call to ensure stop strings work
+                data = await directOpenAIRequest(generateData, stopStrings, abortController.signal, jsonSchema);
+            } else {
+                // Fall back to normal request if no stop strings
+                const requestOptions = { jsonSchema };
+                data = await sendOpenAIRequest('quiet', generateData, abortController.signal, requestOptions);
             }
-            data = await sendOpenAIRequest('quiet', generateData, abortController.signal, requestOptions);
             console.log('OpenAI/Mistral response:', JSON.stringify(data, null, 2));
         } else {
             const generateUrl = getGenerateUrl(api);
