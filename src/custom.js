@@ -1,4 +1,4 @@
-import { generateRaw } from '../../../script.js';
+import { generateRaw } from '../../../../../script.js';
 
 
 // Add this custom generateRaw method to your script
