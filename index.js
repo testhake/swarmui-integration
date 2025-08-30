@@ -503,11 +503,20 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
             prompt = formatMessages(visibleMessages);
         }
 
-        const result = await generateRaw({
-            systemPrompt: systemPrompt,
-            prompt: prompt,
-            prefill: ''
-        });
+        try {
+            const result = await generateRaw({
+                systemPrompt: systemPrompt,
+                prompt: prompt,
+                prefill: '',
+                stop: ["\n\n", "---", "END_PROMPT"], // Add stop sequences
+                max_tokens: 1500 // Limit response length
+            });
+            console.log('generateRaw result:', result);
+            imagePrompt = result;
+        } catch (error) {
+            console.error('generateRaw failed:', error);
+            throw error;
+        }
         imagePrompt = result;
     } else {
         // Use the original method with generateQuietPrompt
