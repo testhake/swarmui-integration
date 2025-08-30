@@ -13,14 +13,11 @@ import { getTextGenGenerationData } from '../../../../textgen-settings.js';
 // Utilities
 import { getGenerateUrl, getRequestHeaders } from '../../../../utils.js';
 
-// TempResponseLength hook (used in raw gen)
-import { TempResponseLength } from '../../../../../script.js';
-
 // generateRawSafe.js
 // A drop-in replacement for generateRaw that attempts to:
 //  - Enforce a max completion length via per-request fields (max_tokens / max_length)
 //  - Support explicit stop sequences
-//  - Avoid relying solely on TempResponseLength (which in some setups may be ignored)
+//  - Avoid relying on TempResponseLength entirely
 //  - Keep the same return behaviour as the original generateRaw (returns generated string or throws)
 
 // Usage in your extension:
@@ -53,10 +50,8 @@ export async function generateRawSafe({
 
     try {
         /**
-         * We intentionally avoid exclusively relying on TempResponseLength.save/restore because
-         * some backends (or gateway layers) may ignore that global shimming. Instead, we try to
-         * append token/stop configuration directly into the payload that will be sent to the
-         * model service (for example openai-compatible fields: max_tokens, stop).
+         * We rely entirely on direct payload configuration (max_tokens, stop, etc.) 
+         * rather than using TempResponseLength global state management.
          */
 
         let generateData = {};
@@ -103,47 +98,33 @@ export async function generateRawSafe({
                     generateData.stop = Array.isArray(stops) ? stops : [stops];
                 }
 
-                // Avoid depending solely on TempResponseLength; still keep eventHook compatibility
-                var eventHook = TempResponseLength?.setupEventHook ? TempResponseLength.setupEventHook(api) : () => { };
-                if (typeof responseLength === 'number' && TempResponseLength?.save) {
-                    // This tries to preserve the original behavior for other parts of the frontend
-                    TempResponseLength.save(api, responseLength);
+                // Send the request directly without TempResponseLength management
+                const data = await sendOpenAIRequest('quiet', generateData, abortController.signal, { jsonSchema });
+
+                // The rest of this block mirrors original extract/cleanup logic
+                if (data.error) {
+                    throw new Error(data.response || JSON.stringify(data));
                 }
 
-                try {
-                    const data = await sendOpenAIRequest('quiet', generateData, abortController.signal, { jsonSchema });
-
-                    // The rest of this block mirrors original extract/cleanup logic
-                    if (data.error) {
-                        throw new Error(data.response || JSON.stringify(data));
-                    }
-
-                    if (jsonSchema) {
-                        return extractJsonFromData(data, { mainApi: api });
-                    }
-
-                    const message = cleanUpMessage({
-                        getMessage: extractMessageFromData(data),
-                        isImpersonate: false,
-                        isContinue: false,
-                        displayIncompleteSentences: true,
-                        includeUserPromptBias: false,
-                        trimNames: trimNames,
-                        trimWrongNames: trimNames,
-                    });
-
-                    if (!message) {
-                        throw new Error('No message generated');
-                    }
-
-                    return message;
-                } finally {
-                    // restore the TempResponseLength state if we changed it
-                    if (typeof responseLength === 'number' && TempResponseLength?.isCustomized && TempResponseLength.isCustomized()) {
-                        TempResponseLength.restore(api);
-                        TempResponseLength.removeEventHook(api, eventHook);
-                    }
+                if (jsonSchema) {
+                    return extractJsonFromData(data, { mainApi: api });
                 }
+
+                const message = cleanUpMessage({
+                    getMessage: extractMessageFromData(data),
+                    isImpersonate: false,
+                    isContinue: false,
+                    displayIncompleteSentences: true,
+                    includeUserPromptBias: false,
+                    trimNames: trimNames,
+                    trimWrongNames: trimNames,
+                });
+
+                if (!message) {
+                    throw new Error('No message generated');
+                }
+
+                return message;
             }
 
             default: {
