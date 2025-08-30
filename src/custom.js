@@ -3,7 +3,7 @@ import { sendOpenAIRequest } from '../../../../openai.js';
 
 // Data extraction / cleanup helpers (same ones generateRaw uses)
 import { extractMessageFromData, extractJsonFromData } from '../../../../st-context.js';
-import { cleanUpMessage } from '../../../../power-user.js';
+import { cleanUpMessage } from '../../../../../script.js';
 
 // Kobold/Novel/Textgen wrappers
 import { getKoboldGenerationData, kai_settings, koboldai_settings, koboldai_setting_names } from '../../../../kai-settings.js';
