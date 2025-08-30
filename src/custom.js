@@ -14,7 +14,7 @@ import { getTextGenGenerationData } from '../../../../textgen-settings.js';
 import { getGenerateUrl, getRequestHeaders } from '../../../../utils.js';
 
 // TempResponseLength hook (used in raw gen)
-import { TempResponseLength } from '../../../../PromptManager.js';
+import { TempResponseLength } from '../../../../../script.js';
 
 // generateRawSafe.js
 // A drop-in replacement for generateRaw that attempts to:
