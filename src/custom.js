@@ -1,8 +1,8 @@
 // Core OpenAI handling
-import { sendOpenAIRequest } from '../../../../openai.js';
+import { sendOpenAIRequest, oai_settings } from '../../../../openai.js';
 
 // Data extraction / cleanup helpers (same ones generateRaw uses)
-import { main_api, amount_gen, max_context, oai_settings } from '../../../../../script.js';
+import { main_api, amount_gen, max_context } from '../../../../../script.js';
 import { cleanUpMessage, extractMessageFromData, extractJsonFromData, getGenerateUrl, getRequestHeaders, createRawPrompt } from '../../../../../script.js';
 
 // Kobold/Novel/Textgen wrappers
