@@ -515,7 +515,6 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
             console.error('generateRaw failed:', error);
             throw error;
         }
-        imagePrompt = result;
     } else {
         // Use the original method with generateQuietPrompt
         // Find the last message that is visible to the AI
