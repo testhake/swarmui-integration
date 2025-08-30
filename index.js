@@ -503,8 +503,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
                         '</s>',           // End of sequence token
                         '[/INST]',        // End of instruction token
                         '<|endoftext|>',  // Generic end token
-                        '<END>',         // Your custom token
-                        '\n\n', 
+                        '<END>'
                     ],
                 });
                 console.log('generateRaw result:', result);
