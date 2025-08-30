@@ -1,5 +1,5 @@
 // Core OpenAI handling
-import { sendOpenAIRequest, oai_settings } from '../../../../openai.js';
+import { sendOpenAIRequest, oai_settings, getChatCompletionModel } from '../../../../openai.js';
 
 // Data extraction / cleanup helpers (same ones generateRaw uses)
 import { main_api, amount_gen, max_context } from '../../../../../script.js';
@@ -10,6 +10,68 @@ import { kai_settings, koboldai_settings, koboldai_setting_names, getKoboldGener
 import { novelai_settings, novelai_setting_names, nai_settings, getNovelGenerationData } from '../../../../nai-settings.js';
 import { generateHorde } from '../../../../horde.js';
 import { getTextGenGenerationData } from '../../../../textgen-settings.js';
+
+/**
+ * Custom OpenAI request function that properly handles stop strings
+ * @param {object[]} messages - Array of chat messages
+ * @param {string[]} stopStrings - Array of stop strings
+ * @param {object} jsonSchema - Optional JSON schema
+ * @param {AbortSignal} signal - Abort signal
+ * @returns {Promise<object>} Response data
+ */
+async function sendCustomOpenAIRequest(messages, stopStrings, jsonSchema, signal) {
+    const model = getChatCompletionModel();
+
+    const generateData = {
+        model: model,
+        messages: messages,
+        temperature: Number(oai_settings.temp_openai),
+        top_p: Number(oai_settings.top_p_openai),
+        frequency_penalty: Number(oai_settings.freq_pen_openai),
+        presence_penalty: Number(oai_settings.pres_pen_openai),
+        max_tokens: oai_settings.openai_max_tokens,
+        stream: false,
+        stop: stopStrings,
+        chat_completion_source: oai_settings.chat_completion_source,
+    };
+
+    // Add additional settings based on the completion source
+    if (oai_settings.chat_completion_source == chat_completion_sources.MISTRALAI) {
+        generateData.safe_prompt = false;
+    }
+
+    if (jsonSchema) {
+        generateData.json_schema = jsonSchema;
+    }
+
+    // Add proxy settings if configured
+    if (oai_settings.reverse_proxy && [chat_completion_sources.CLAUDE, chat_completion_sources.OPENAI, chat_completion_sources.MISTRALAI, chat_completion_sources.MAKERSUITE, chat_completion_sources.VERTEXAI, chat_completion_sources.DEEPSEEK, chat_completion_sources.XAI].includes(oai_settings.chat_completion_source)) {
+        generateData.reverse_proxy = oai_settings.reverse_proxy;
+        generateData.proxy_password = oai_settings.proxy_password;
+    }
+
+    console.log('Custom OpenAI request data:', generateData);
+
+    const response = await fetch('/api/backends/chat-completions/generate', {
+        method: 'POST',
+        body: JSON.stringify(generateData),
+        headers: getRequestHeaders(),
+        signal: signal,
+    });
+
+    if (!response.ok) {
+        throw new Error(`Got response status ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+        const message = data.error.message || response.statusText || 'Unknown error';
+        throw new Error(message);
+    }
+
+    return data;
+}
 
 /**
  * Generates a message using the provided prompt with support for stopping strings.
@@ -128,14 +190,14 @@ export async function generateRawWithStops({
         if (api === 'koboldhorde') {
             data = await generateHorde(prompt.toString(), generateData, abortController.signal, false);
         } else if (api === 'openai') {
-            // For OpenAI/Mistral, we need to modify the request to include stop strings
-            const requestOptions = { jsonSchema };
-            console.log('OpenAI/Mistral requestOptions:', JSON.stringify(requestOptions));
+            // For OpenAI/Mistral, we'll make a direct request to handle stop strings properly
             if (stopStrings.length > 0) {
-                requestOptions.stop = stopStrings;
-                console.log('Adding stop strings to OpenAI request:', stopStrings);
+                console.log('Using custom OpenAI request with stop strings:', stopStrings);
+                data = await sendCustomOpenAIRequest(generateData, stopStrings, jsonSchema, abortController.signal);
+            } else {
+                const requestOptions = { jsonSchema };
+                data = await sendOpenAIRequest('quiet', generateData, abortController.signal, requestOptions);
             }
-            data = await sendOpenAIRequest('quiet', generateData, abortController.signal, requestOptions);
             console.log('OpenAI/Mistral response:', JSON.stringify(data, null, 2));
         } else {
             const generateUrl = getGenerateUrl(api);
@@ -232,6 +294,17 @@ export async function generateRawWithStops({
             }
         }
     }
+}
+
+// Alternative function with a more specific name for image prompt generation
+export async function generateImagePromptWithStops(params = {}) {
+    // Default stop strings commonly used for danbooru tag generation
+    const defaultStops = ['\n\n', '###', 'USER:', 'ASSISTANT:', '<|im_end|>', '<|endoftext|>'];
+
+    return generateRawWithStops({
+        ...params,
+        stopStrings: params.stopStrings || defaultStops
+    });
 }
 
 // Alternative function with a more specific name for image prompt generation
