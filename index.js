@@ -450,33 +450,41 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
         let prompt;
 
         if (parsedMessages.length > 0) {
-            // Find system messages (use first one for systemPrompt parameter)
-            const systemMessages = parsedMessages.filter(msg => msg.role === 'system');
-            if (systemMessages.length > 0) {
-                systemPrompt = systemMessages[0].content;
-            }
+            // Check if we have any system messages
+            const hasSystemMessages = parsedMessages.some(msg => msg.role === 'system');
 
-            // Create chat completion array with all messages
-            const chatMessages = [];
+            if (hasSystemMessages) {
+                // Find the first system message to use as systemPrompt parameter
+                const firstSystemMessage = parsedMessages.find(msg => msg.role === 'system');
+                systemPrompt = firstSystemMessage.content;
 
-            // Add additional system messages (after the first one) to chat array
-            if (systemMessages.length > 1) {
-                for (let i = 1; i < systemMessages.length; i++) {
+                // Create chat completion array preserving the original order
+                // but exclude the first system message since it's used as systemPrompt
+                const chatMessages = [];
+                let firstSystemFound = false;
+
+                for (const msg of parsedMessages) {
+                    if (msg.role === 'system' && !firstSystemFound) {
+                        // Skip the first system message as it's used for systemPrompt
+                        firstSystemFound = true;
+                        continue;
+                    }
+
                     chatMessages.push({
-                        role: 'system',
-                        content: systemMessages[i].content
+                        role: msg.role,
+                        content: msg.content
                     });
                 }
+
+                prompt = chatMessages;
+            } else {
+                // No system messages, use all messages as-is
+                systemPrompt = '';
+                prompt = parsedMessages.map(msg => ({
+                    role: msg.role,
+                    content: msg.content
+                }));
             }
-
-            // Add all non-system messages
-            const otherMessages = parsedMessages.filter(msg => msg.role !== 'system');
-            chatMessages.push(...otherMessages.map(msg => ({
-                role: msg.role,
-                content: msg.content
-            })));
-
-            prompt = chatMessages;
         } else {
             // Fallback to simple string format
             systemPrompt = 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.';
