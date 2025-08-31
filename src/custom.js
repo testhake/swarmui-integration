@@ -1,5 +1,5 @@
 // Core OpenAI handling
-import { customModel } from '../script.js';
+import { customModel } from '../index.js';
 import { sendOpenAIRequest, oai_settings, getChatCompletionModel, chat_completion_sources } from '../../../../openai.js';
 
 // Data extraction / cleanup helpers (same ones generateRaw uses)
