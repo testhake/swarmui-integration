@@ -1,5 +1,5 @@
 // Core OpenAI handling
-import { custom_model } from '../index.js';
+import { getCustomModel } from '../index.js';
 import { sendOpenAIRequest, oai_settings, getChatCompletionModel, chat_completion_sources } from '../../../../openai.js';
 
 // Data extraction / cleanup helpers (same ones generateRaw uses)
@@ -23,8 +23,8 @@ import { getTextGenGenerationData } from '../../../../textgen-settings.js';
 async function sendCustomOpenAIRequest(messages, stopStrings, jsonSchema, signal) {
     let model = getChatCompletionModel();
 
-    if (custom_model !== "") {
-        model = custom_model;
+    if (getCustomModel() !== "") {
+        model = getCustomModel();
     }
 
     const generateData = {
