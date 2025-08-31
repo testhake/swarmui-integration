@@ -14,8 +14,6 @@ let generatingMessageId = null;
 let cachedSessionId = null; // Cache the session ID
 let mainButtonsBusy = false; // Add this line
 
-export const getCustomModel = () => settings.swarm_custom_model;
-
 // Method 1: Use SillyTavern's built-in notification system
 function playNotificationSound() {
     try {
@@ -44,6 +42,13 @@ function setMainButtonsBusy(isBusy) {
 
     $('#swarm_generate_from_message_button i').toggleClass('fa-image', !isBusy);
     $('#swarm_generate_from_message_button i').toggleClass('fa-hourglass-half', isBusy);
+}
+export function getCustomModel() {
+    // Ensure settings are loaded
+    if (!settings.swarm_custom_model) {
+        return '';
+    }
+    return String(settings.swarm_custom_model);
 }
 
 async function loadSettings() {
