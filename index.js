@@ -45,10 +45,10 @@ function setMainButtonsBusy(isBusy) {
 }
 export function getCustomModel() {
     // Ensure settings are loaded
-    if (!settings.swarm_custom_model) {
+    if (!settings.custom_model) {
         return '';
     }
-    return String(settings.swarm_custom_model);
+    return String(settings.custom_model);
 }
 
 async function loadSettings() {
