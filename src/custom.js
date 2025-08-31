@@ -20,8 +20,8 @@ import { getTextGenGenerationData } from '../../../../textgen-settings.js';
  * @returns {Promise<object>} Response data
  */
 async function sendCustomOpenAIRequest(messages, stopStrings, jsonSchema, signal) {
-    const model = getChatCompletionModel();
-
+    //const model = getChatCompletionModel();
+    const model = "magistral-medium-latest";
     const generateData = {
         model: model,
         messages: messages,
