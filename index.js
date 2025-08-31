@@ -14,6 +14,8 @@ let generatingMessageId = null;
 let cachedSessionId = null; // Cache the session ID
 let mainButtonsBusy = false; // Add this line
 
+export const custom_model = settings.swarm_custom_model;
+
 // Method 1: Use SillyTavern's built-in notification system
 function playNotificationSound() {
     try {
@@ -55,6 +57,7 @@ async function loadSettings() {
     $('#swarm_append_prompt').prop('checked', !!settings.append_prompt).trigger('input');
     $('#swarm_use_raw').prop('checked', !!settings.use_raw).trigger('input');
     $('#swarm_use_custom_generate_raw').prop('checked', !!settings.use_custom_generate_raw).trigger('input');
+    $('#swarm_custom_model').prop('checked', !!settings.swarm_custom_model).trigger('input');
     $('#swarm_message_count').val(settings.message_count || 5).trigger('input');
 
     // Load cached session ID if it exists in settings

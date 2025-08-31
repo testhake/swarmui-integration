@@ -1,4 +1,5 @@
 // Core OpenAI handling
+import { customModel } from '../script.js';
 import { sendOpenAIRequest, oai_settings, getChatCompletionModel, chat_completion_sources } from '../../../../openai.js';
 
 // Data extraction / cleanup helpers (same ones generateRaw uses)
@@ -20,8 +21,12 @@ import { getTextGenGenerationData } from '../../../../textgen-settings.js';
  * @returns {Promise<object>} Response data
  */
 async function sendCustomOpenAIRequest(messages, stopStrings, jsonSchema, signal) {
-    //const model = getChatCompletionModel();
-    const model = "magistral-medium-latest";
+    let model = getChatCompletionModel();
+
+    if (customModel !== "") {
+        model = customModel;
+    }
+
     const generateData = {
         model: model,
         messages: messages,
