@@ -1301,7 +1301,7 @@ jQuery(async () => {
 
     // Bind original buttons (keeping existing functionality)
     $("#swarm_generate_button").on("click", () => {
-        if (settings.show_prompt_modal) {
+        if (settings.show_prompt_modal !== false) {
             generateImageWithModal();
         } else {
             generateImage(); // Keep original behavior
@@ -1310,8 +1310,14 @@ jQuery(async () => {
     $("#swarm_generate_prompt_button").on("click", () => generatePromptOnly());
     $("#swarm_generate_from_message_button").on("click", () => generateImageFromMessage());
 
-    // Bind message action buttons using event delegation
-    $(document).on('click', '.swarm_mes_gen_image', swarmMessageGenerateImage);
+    // Bind message action buttons using event delegation - use modal versions
+    $(document).on('click', '.swarm_mes_gen_image', (e) => {
+        if (settings.show_prompt_modal !== false) { // Default to true
+            swarmMessageGenerateImageWithModal(e);
+        } else {
+            swarmMessageGenerateImage(e);
+        }
+    });
     $(document).on('click', '.swarm_mes_gen_prompt', swarmMessageGeneratePrompt);
     $(document).on('click', '.swarm_mes_gen_from_msg', swarmMessageGenerateFromMessage);
 
