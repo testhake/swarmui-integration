@@ -1292,7 +1292,6 @@ async function swarmMessageGenerateImageWithModal(e) {
 }
 
 jQuery(async () => {
-    injectModalCSS();
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
     $("#extensions_settings").append(settingsHtml);
     $("#swarm_settings input, #swarm_settings textarea").on("input", onInput);
