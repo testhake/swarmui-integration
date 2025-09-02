@@ -714,7 +714,15 @@ async function addGeneratingMessage() {
 /**
  * Add final image message to chat
  */
-async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Generated image') {
+
+/**
+ * Add final image message to chat at a specific position
+ * @param {string} savedImagePath - Path to the saved image
+ * @param {string} imagePrompt - The prompt used for generation
+ * @param {string} messagePrefix - Prefix for the message text
+ * @param {number|null} insertAfterIndex - Index of message to insert after (null = append to end)
+ */
+async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Generated image', insertAfterIndex = null) {
     const context = getContext();
     const chat = context.chat;
 
@@ -729,15 +737,33 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
         },
     };
 
-    chat.push(imageMessage);
-    const imageMessageId = chat.length - 1;
+    let imageMessageId;
 
-    // Emit events to properly render the message with image
-    await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
-    context.addOneMessage(imageMessage);
-    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
+    if (insertAfterIndex !== null && insertAfterIndex >= 0 && insertAfterIndex < chat.length) {
+        // Insert after the specific message
+        chat.splice(insertAfterIndex + 1, 0, imageMessage);
+        imageMessageId = insertAfterIndex + 1;
+
+        // Update all message IDs after the insertion point
+        // This is important for maintaining proper message indexing
+        await eventSource.emit(event_types.CHAT_CHANGED, -1);
+
+        // Re-render the entire chat to ensure proper ordering
+        context.clearChat();
+        await context.printMessages();
+
+    } else {
+        // Fallback to appending at the end (original behavior)
+        chat.push(imageMessage);
+        imageMessageId = chat.length - 1;
+
+        // Emit events to properly render the message with image
+        await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
+        context.addOneMessage(imageMessage);
+        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
+    }
+
     await context.saveChat();
-
     return imageMessageId;
 }
 
@@ -761,17 +787,33 @@ async function generatePromptOnly(upToMessageIndex = null) {
         const testMessage = {
             name: context.name2 || 'System',
             is_system: true,
-            mes: `${imagePrompt}`,
+            mes: `Generated prompt: ${imagePrompt}`,
             sendDate: Date.now(),
         };
 
-        chat.push(testMessage);
-        const testMessageId = chat.length - 1;
+        let testMessageId;
 
-        // Render the test message
-        await eventSource.emit(event_types.MESSAGE_RECEIVED, testMessageId);
-        context.addOneMessage(testMessage);
-        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, testMessageId);
+        if (upToMessageIndex !== null && upToMessageIndex >= 0 && upToMessageIndex < chat.length) {
+            // Insert after the specific message
+            chat.splice(upToMessageIndex + 1, 0, testMessage);
+            testMessageId = upToMessageIndex + 1;
+
+            // Re-render the entire chat to ensure proper ordering
+            await eventSource.emit(event_types.CHAT_CHANGED, -1);
+            context.clearChat();
+            await context.printMessages();
+
+        } else {
+            // Fallback to appending at the end
+            chat.push(testMessage);
+            testMessageId = chat.length - 1;
+
+            // Render the test message
+            await eventSource.emit(event_types.MESSAGE_RECEIVED, testMessageId);
+            context.addOneMessage(testMessage);
+            await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, testMessageId);
+        }
+
         await context.saveChat();
 
         toastr.success('Prompt generated successfully!');
@@ -802,18 +844,16 @@ async function generateImage(upToMessageIndex = null) {
         // Generate the prompt first
         const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
-        // Add generating message
-        //generatingMessageId = await addGeneratingMessage();
-
         // Generate and save the image
         const result = await generateAndSaveImage(imagePrompt);
 
-        // Remove the generating message
-        //await removeGeneratingSlice(getContext());
-        generatingMessageId = null;
-
-        // Add final image message
-        await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image');
+        // Add final image message - insert after the specific message if specified
+        await addImageMessage(
+            result.savedImagePath,
+            result.imagePrompt,
+            'Generated image',
+            upToMessageIndex
+        );
 
         playNotificationSound();
 
@@ -848,10 +888,13 @@ async function generateImageFromMessage(messageIndex = null) {
 
     // Get the message text - either from specific index or last message
     let messageText;
+    let targetIndex = messageIndex;
+
     if (messageIndex !== null) {
         messageText = getMessageAtIndex(chat, messageIndex);
     } else {
         messageText = getLastMessage(chat);
+        targetIndex = chat.length - 1; // Use last message index for positioning
     }
 
     if (!messageText || !messageText.trim()) {
@@ -864,21 +907,19 @@ async function generateImageFromMessage(messageIndex = null) {
     try {
         setMainButtonsBusy(true);
 
-        // Add generating message
-        //generatingMessageId = await addGeneratingMessage();
-
         // Use the message directly as prompt (no LLM processing)
         const imagePrompt = messageText.trim();
 
         // Generate and save the image
         const result = await generateAndSaveImage(imagePrompt);
 
-        // Remove the generating message
-        //await removeGeneratingSlice(context);
-        generatingMessageId = null;
-
-        // Add final image message
-        await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image from message');
+        // Add final image message after the source message
+        await addImageMessage(
+            result.savedImagePath,
+            result.imagePrompt,
+            'Generated image from message',
+            targetIndex
+        );
 
         playNotificationSound();
 
@@ -893,6 +934,7 @@ async function generateImageFromMessage(messageIndex = null) {
         setMainButtonsBusy(false);
     }
 }
+
 
 // MESSAGE ACTION HANDLERS
 function setBusyIcon($icon, isBusy, originalClass) {
@@ -1245,8 +1287,14 @@ async function generateImageWithModal(upToMessageIndex = null) {
                 // Generate and save the image with the final prompt
                 const result = await generateAndSaveImage(finalPrompt);
 
-                // Add final image message
-                await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image');
+                // Add final image message - insert after the specific message if specified
+                await addImageMessage(
+                    result.savedImagePath,
+                    result.imagePrompt,
+                    'Generated image',
+                    upToMessageIndex // This will insert after the selected message
+                );
+
                 playNotificationSound();
 
             } catch (error) {
@@ -1269,6 +1317,7 @@ async function generateImageWithModal(upToMessageIndex = null) {
         setMainButtonsBusy(false);
     }
 }
+
 
 // Modified message action handlers for modal
 async function swarmMessageGenerateImageWithModal(e) {
