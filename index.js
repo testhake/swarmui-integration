@@ -1032,14 +1032,6 @@ function observeForNewMessages() {
 
 //MODAL------------------
 // Inject CSS styles
-function injectModalCSS() {
-    if (!document.getElementById('swarm-modal-styles')) {
-        const style = document.createElement('style');
-        style.id = 'swarm-modal-styles';
-        style.textContent = modalCSS;
-        document.head.appendChild(style);
-    }
-}
 
 // Modal class for prompt preview
 class SwarmPromptModal {
