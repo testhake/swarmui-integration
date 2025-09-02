@@ -92,3 +92,209 @@
     color: gray;
     font-style: italic;
 }
+
+
+
+
+.swarm-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+    backdrop-filter: blur(2px);
+}
+
+.swarm-modal {
+    background: var(--SmartThemeBodyColor, #222);
+    border: 1px solid var(--SmartThemeBorderColor, #444);
+    border-radius: 8px;
+    width: 90%;
+    max-width: 700px;
+    max-height: 90vh;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.swarm-modal-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, #444);
+    background: var(--SmartThemeBlurTintColor, #333);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.swarm-modal-title {
+    margin: 0;
+    color: var(--SmartThemeQuoteColor, #fff);
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.swarm-modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: var(--SmartThemeQuoteColor, #fff);
+    cursor: pointer;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+    .swarm-modal-close:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+    }
+
+.swarm-modal-body {
+    padding: 20px;
+    max-height: calc(90vh - 140px);
+    overflow-y: auto;
+}
+
+.swarm-prompt-textarea {
+    width: 100%;
+    min-height: 200px;
+    max-height: 400px;
+    padding: 12px;
+    border: 1px solid var(--SmartThemeBorderColor, #444);
+    border-radius: 4px;
+    background: var(--SmartThemeBodyColor, #111);
+    color: var(--SmartThemeQuoteColor, #fff);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 14px;
+    line-height: 1.4;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+    .swarm-prompt-textarea:focus {
+        outline: none;
+        border-color: var(--SmartThemeHighlightColor, #007bff);
+        box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+    }
+
+.swarm-modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+
+.swarm-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+    .swarm-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+.swarm-btn-primary {
+    background: #007bff;
+    color: white;
+}
+
+    .swarm-btn-primary:hover:not(:disabled) {
+        background: #0056b3;
+    }
+
+.swarm-btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+    .swarm-btn-secondary:hover:not(:disabled) {
+        background: #545b62;
+    }
+
+.swarm-btn-warning {
+    background: #ffc107;
+    color: #212529;
+}
+
+    .swarm-btn-warning:hover:not(:disabled) {
+        background: #e0a800;
+    }
+
+.swarm-btn-success {
+    background: #28a745;
+    color: white;
+}
+
+    .swarm-btn-success:hover:not(:disabled) {
+        background: #1e7e34;
+    }
+
+.swarm-loading-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid transparent;
+    border-top: 2px solid currentColor;
+    border-radius: 50%;
+    animation: swarm-spin 1s linear infinite;
+}
+
+@keyframes swarm-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.swarm-prompt-info {
+    background: rgba(0, 123, 255, 0.1);
+    border: 1px solid rgba(0, 123, 255, 0.3);
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 15px;
+    font-size: 13px;
+    color: var(--SmartThemeQuoteColor, #fff);
+}
+
+.swarm-char-count {
+    text-align: right;
+    font-size: 12px;
+    color: var(--SmartThemeQuoteColor, #aaa);
+    margin-top: 5px;
+}
+
+@media (max-width: 768px) {
+    .swarm-modal {
+        width: 95%;
+        margin: 10px;
+    }
+
+    .swarm-modal-actions {
+        flex-direction: column;
+    }
+
+    .swarm-btn {
+        width: 100%;
+        justify-content: center;
+    }
+}

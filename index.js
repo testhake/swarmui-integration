@@ -65,6 +65,8 @@ async function loadSettings() {
     $('#swarm_custom_model').val(settings.custom_model || '').trigger('input');
     $('#swarm_message_count').val(settings.message_count || 5).trigger('input');
 
+    $('#swarm_show_prompt_modal').prop('checked', !!settings.show_prompt_modal).trigger('input');
+
     // Load cached session ID if it exists in settings
     cachedSessionId = settings.cached_session_id || null;
 }
@@ -77,6 +79,9 @@ function onInput(event) {
         settings[id] = parseInt($(event.target).val()) || 5;
     } else {
         settings[id] = $(event.target).val();
+    }
+    if (id === 'show_prompt_modal') {
+        settings[id] = $(event.target).prop('checked');
     }
     extension_settings[MODULE_NAME] = settings;
     saveSettingsDebounced();
@@ -1025,7 +1030,277 @@ function observeForNewMessages() {
     }
 }
 
+//MODAL------------------
+// Inject CSS styles
+function injectModalCSS() {
+    if (!document.getElementById('swarm-modal-styles')) {
+        const style = document.createElement('style');
+        style.id = 'swarm-modal-styles';
+        style.textContent = modalCSS;
+        document.head.appendChild(style);
+    }
+}
+
+// Modal class for prompt preview
+class SwarmPromptModal {
+    constructor() {
+        this.isVisible = false;
+        this.overlay = null;
+        this.textarea = null;
+        this.onGenerate = null;
+        this.onCancel = null;
+        this.currentPrompt = '';
+        this.upToMessageIndex = null;
+    }
+
+    show(prompt, upToMessageIndex = null) {
+        if (this.isVisible) {
+            this.hide();
+        }
+
+        this.currentPrompt = prompt;
+        this.upToMessageIndex = upToMessageIndex;
+        this.isVisible = true;
+
+        this.overlay = document.createElement('div');
+        this.overlay.className = 'swarm-modal-overlay';
+
+        this.overlay.innerHTML = `
+            <div class="swarm-modal">
+                <div class="swarm-modal-header">
+                    <h3 class="swarm-modal-title">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> 
+                        Review & Edit Prompt
+                    </h3>
+                    <button class="swarm-modal-close" type="button">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="swarm-modal-body">
+                    <div class="swarm-prompt-info">
+                        <i class="fa-solid fa-info-circle"></i>
+                        <strong>Generated Prompt:</strong> Review and edit the generated prompt before sending to SwarmUI. You can regenerate it or proceed with the current version.
+                    </div>
+
+                    <textarea 
+                        class="swarm-prompt-textarea" 
+                        placeholder="Generated prompt will appear here..."
+                        spellcheck="false"
+                    >${prompt}</textarea>
+                    
+                    <div class="swarm-char-count">
+                        <span class="char-count">${prompt.length}</span> characters
+                    </div>
+
+                    <div class="swarm-modal-actions">
+                        <button class="swarm-btn swarm-btn-warning regenerate-btn">
+                            <i class="fa-solid fa-refresh"></i>
+                            Regenerate Prompt
+                        </button>
+                        
+                        <button class="swarm-btn swarm-btn-success generate-image-btn">
+                            <i class="fa-solid fa-image"></i>
+                            Generate Image
+                        </button>
+                        
+                        <button class="swarm-btn swarm-btn-secondary cancel-btn">
+                            <i class="fa-solid fa-times"></i>
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(this.overlay);
+        this.bindEvents();
+
+        // Focus the textarea and select all text
+        setTimeout(() => {
+            this.textarea = this.overlay.querySelector('.swarm-prompt-textarea');
+            this.textarea.focus();
+            this.textarea.select();
+        }, 100);
+    }
+
+    hide() {
+        if (this.overlay) {
+            document.body.removeChild(this.overlay);
+            this.overlay = null;
+        }
+        this.isVisible = false;
+        this.textarea = null;
+    }
+
+    bindEvents() {
+        const textarea = this.overlay.querySelector('.swarm-prompt-textarea');
+        const charCount = this.overlay.querySelector('.char-count');
+        const regenerateBtn = this.overlay.querySelector('.regenerate-btn');
+        const generateBtn = this.overlay.querySelector('.generate-image-btn');
+        const cancelBtn = this.overlay.querySelector('.cancel-btn');
+        const closeBtn = this.overlay.querySelector('.swarm-modal-close');
+
+        // Update character count
+        const updateCharCount = () => {
+            charCount.textContent = textarea.value.length;
+        };
+
+        textarea.addEventListener('input', updateCharCount);
+
+        // Close modal handlers
+        const closeModal = () => {
+            this.hide();
+            if (this.onCancel) this.onCancel();
+        };
+
+        closeBtn.addEventListener('click', closeModal);
+        cancelBtn.addEventListener('click', closeModal);
+
+        // Close on overlay click (but not on modal content)
+        this.overlay.addEventListener('click', (e) => {
+            if (e.target === this.overlay) {
+                closeModal();
+            }
+        });
+
+        // ESC key to close
+        const handleEsc = (e) => {
+            if (e.key === 'Escape' && this.isVisible) {
+                closeModal();
+                document.removeEventListener('keydown', handleEsc);
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
+
+        // Regenerate prompt
+        regenerateBtn.addEventListener('click', async () => {
+            if (regenerateBtn.disabled) return;
+
+            regenerateBtn.disabled = true;
+            regenerateBtn.innerHTML = '<span class="swarm-loading-spinner"></span> Regenerating...';
+
+            try {
+                const newPrompt = await generateImagePromptFromChat(this.upToMessageIndex);
+                textarea.value = newPrompt;
+                this.currentPrompt = newPrompt;
+                updateCharCount();
+                toastr.success('Prompt regenerated successfully!');
+            } catch (error) {
+                console.error('Failed to regenerate prompt:', error);
+                toastr.error(`Failed to regenerate prompt: ${error.message}`);
+            } finally {
+                regenerateBtn.disabled = false;
+                regenerateBtn.innerHTML = '<i class="fa-solid fa-refresh"></i> Regenerate Prompt';
+            }
+        });
+
+        // Generate image with current prompt
+        generateBtn.addEventListener('click', async () => {
+            if (generateBtn.disabled) return;
+
+            const finalPrompt = textarea.value.trim();
+            if (!finalPrompt) {
+                toastr.error('Please enter a prompt before generating.');
+                textarea.focus();
+                return;
+            }
+
+            generateBtn.disabled = true;
+            generateBtn.innerHTML = '<span class="swarm-loading-spinner"></span> Generating Image...';
+
+            try {
+                // Hide modal first
+                this.hide();
+
+                // Call the generate function with the edited prompt
+                if (this.onGenerate) {
+                    await this.onGenerate(finalPrompt);
+                }
+            } catch (error) {
+                console.error('Failed to generate image:', error);
+                toastr.error(`Failed to generate image: ${error.message}`);
+                generateBtn.disabled = false;
+                generateBtn.innerHTML = '<i class="fa-solid fa-image"></i> Generate Image';
+            }
+        });
+    }
+}
+
+// Global modal instance
+let promptModal = null;
+
+// Modified generateImage function to show modal first
+async function generateImageWithModal(upToMessageIndex = null) {
+    if (mainButtonsBusy) {
+        console.log('SwarmUI: Previous generation still in progress...');
+        return;
+    }
+
+    try {
+        setMainButtonsBusy(true);
+
+        // Generate the initial prompt
+        const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
+
+        // Show modal with the generated prompt
+        if (!promptModal) {
+            promptModal = new SwarmPromptModal();
+        }
+
+        promptModal.onGenerate = async (finalPrompt) => {
+            try {
+                // Generate and save the image with the final prompt
+                const result = await generateAndSaveImage(finalPrompt);
+
+                // Add final image message
+                await addImageMessage(result.savedImagePath, result.imagePrompt, 'Generated image');
+                playNotificationSound();
+
+            } catch (error) {
+                console.error('Generation error:', error);
+                toastr.error(`Failed to generate image: ${error.message}`);
+            } finally {
+                setMainButtonsBusy(false);
+            }
+        };
+
+        promptModal.onCancel = () => {
+            setMainButtonsBusy(false);
+        };
+
+        promptModal.show(imagePrompt, upToMessageIndex);
+
+    } catch (error) {
+        console.error('Failed to generate initial prompt:', error);
+        toastr.error(`Failed to generate prompt: ${error.message}`);
+        setMainButtonsBusy(false);
+    }
+}
+
+// Modified message action handlers for modal
+async function swarmMessageGenerateImageWithModal(e) {
+    const $icon = $(e.currentTarget);
+    const $mes = $icon.closest('.mes');
+    const messageId = parseInt($mes.attr('mesid'));
+
+    if ($icon.hasClass('fa-hourglass-half')) {
+        console.log('SwarmUI: Previous generation still in progress...');
+        return;
+    }
+
+    try {
+        setBusyIcon($icon, true, 'fa-wand-magic-sparkles');
+        await generateImageWithModal(messageId);
+    } catch (error) {
+        console.error('SwarmUI message action failed:', error);
+        toastr.error(`Failed to generate image: ${error.message}`);
+        setBusyIcon($icon, false, 'fa-wand-magic-sparkles');
+    }
+}
+
 jQuery(async () => {
+    injectModalCSS();
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
     $("#extensions_settings").append(settingsHtml);
     $("#swarm_settings input, #swarm_settings textarea").on("input", onInput);
@@ -1034,7 +1309,13 @@ jQuery(async () => {
     $("#send_but").before(buttonHtml);
 
     // Bind original buttons (keeping existing functionality)
-    $("#swarm_generate_button").on("click", () => generateImage());
+    $("#swarm_generate_button").on("click", () => {
+        if (settings.show_prompt_modal) {
+            generateImageWithModal();
+        } else {
+            generateImage(); // Keep original behavior
+        }
+    });
     $("#swarm_generate_prompt_button").on("click", () => generatePromptOnly());
     $("#swarm_generate_from_message_button").on("click", () => generateImageFromMessage());
 
