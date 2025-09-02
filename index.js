@@ -1330,15 +1330,53 @@ async function swarmMessageGenerateImageWithModal(e) {
         return;
     }
 
+    setBusyIcon($icon, true, 'fa-wand-magic-sparkles');
+
     try {
-        setBusyIcon($icon, true, 'fa-wand-magic-sparkles');
-        await generateImageWithModal(messageId);
+        // Generate the initial prompt
+        const imagePrompt = await generateImagePromptFromChat(messageId);
+
+        // Show modal with the generated prompt
+        if (!promptModal) {
+            promptModal = new SwarmPromptModal();
+        }
+
+        promptModal.onGenerate = async (finalPrompt) => {
+            try {
+                // Generate and save the image with the final prompt
+                const result = await generateAndSaveImage(finalPrompt);
+
+                // Add final image message - insert after the specific message
+                await addImageMessage(
+                    result.savedImagePath,
+                    result.imagePrompt,
+                    'Generated image',
+                    messageId
+                );
+
+                playNotificationSound();
+
+            } catch (error) {
+                console.error('Generation error:', error);
+                toastr.error(`Failed to generate image: ${error.message}`);
+            } finally {
+                setBusyIcon($icon, false, 'fa-wand-magic-sparkles');
+            }
+        };
+
+        promptModal.onCancel = () => {
+            setBusyIcon($icon, false, 'fa-wand-magic-sparkles');
+        };
+
+        promptModal.show(imagePrompt, messageId);
+
     } catch (error) {
-        console.error('SwarmUI message action failed:', error);
-        toastr.error(`Failed to generate image: ${error.message}`);
+        console.error('Failed to generate initial prompt:', error);
+        toastr.error(`Failed to generate prompt: ${error.message}`);
         setBusyIcon($icon, false, 'fa-wand-magic-sparkles');
     }
 }
+
 
 jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
