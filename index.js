@@ -787,7 +787,7 @@ async function generatePromptOnly(upToMessageIndex = null) {
         const testMessage = {
             name: context.name2 || 'System',
             is_system: true,
-            mes: `Generated prompt: ${imagePrompt}`,
+            mes: `${imagePrompt}`,
             sendDate: Date.now(),
         };
 
