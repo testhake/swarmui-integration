@@ -519,7 +519,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
                         '<END>'
                     ],
                 });
-                console.log('generateRaw result:', result);
+                console.log('generateRawWithStops result:', result);
                 imagePrompt = result;
             }
             else {
