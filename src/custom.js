@@ -55,7 +55,7 @@ async function sendCustomOpenAIRequest(messages, stopStrings, jsonSchema, signal
         generateData.proxy_password = oai_settings.proxy_password;
     }
 
-    console.log('Custom OpenAI request data:', generateData);
+    console.log('[swarmUI-integration] Custom OpenAI request data:', generateData);
 
     const response = await fetch('/api/backends/chat-completions/generate', {
         method: 'POST',
@@ -108,7 +108,7 @@ export async function generateRawWithStops({
     stopStrings = []
 } = {}) {
     if (arguments.length > 0 && typeof arguments[0] !== 'object') {
-        console.trace('generateRawWithStops called with positional arguments. Please use an object instead.');
+        console.trace('[swarmUI-integration] generateRawWithStops called with positional arguments. Please use an object instead.');
         [prompt, api, instructOverride, quietToLoud, systemPrompt, responseLength, trimNames, prefill, jsonSchema, stopStrings] = arguments;
     }
 
@@ -197,13 +197,13 @@ export async function generateRawWithStops({
         } else if (api === 'openai') {
             // For OpenAI/Mistral, we'll make a direct request to handle stop strings properly
             if (stopStrings.length > 0) {
-                console.log('Using custom OpenAI request with stop strings:', stopStrings);
+                console.log('[swarmUI-integration] Using custom OpenAI request with stop strings:', stopStrings);
                 data = await sendCustomOpenAIRequest(generateData, stopStrings, jsonSchema, abortController.signal);
             } else {
                 const requestOptions = { jsonSchema };
                 data = await sendOpenAIRequest('quiet', generateData, abortController.signal, requestOptions);
             }
-            console.log('OpenAI/Mistral response:', JSON.stringify(data, null, 2));
+            console.log('[swarmUI-integration] OpenAI/Mistral response:', JSON.stringify(data, null, 2));
         } else {
             const generateUrl = getGenerateUrl(api);
             const response = await fetch(generateUrl, {
@@ -223,7 +223,7 @@ export async function generateRawWithStops({
 
         // Check if generation stopped due to length limit and warn
         if (api === 'openai' && data && data.choices && data.choices[0] && data.choices[0].finish_reason === 'length') {
-            console.warn('Generation stopped due to length limit. Consider using shorter responseLength or more specific stop strings.');
+            console.warn('[swarmUI-integration] Generation stopped due to length limit. Consider using shorter responseLength or more specific stop strings.');
         }
 
         // should only happen for text completions
@@ -242,7 +242,7 @@ export async function generateRawWithStops({
         try {
             extractedMessage = extractMessageFromData(data);
         } catch (error) {
-            console.warn('Standard message extraction failed, trying Mistral format:', error);
+            console.warn('[swarmUI-integration] Standard message extraction failed, trying Mistral format:', error);
             // Handle Mistral's response format specifically
             if (data && data.choices && data.choices[0] && data.choices[0].message) {
                 const messageContent = data.choices[0].message.content;
@@ -273,7 +273,7 @@ export async function generateRawWithStops({
         });
 
         if (!message) {
-            console.error('Failed to extract message. Raw data:', JSON.stringify(data, null, 2));
+            console.error('[swarmUI-integration] Failed to extract message. Raw data:', JSON.stringify(data, null, 2));
             throw new Error('No message generated');
         }
 

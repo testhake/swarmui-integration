@@ -24,10 +24,10 @@ function playNotificationSound() {
 
         // Play the sound
         audio.play().catch(error => {
-            console.log('Could not play notification sound:', error);
+            console.log('[swarmUI-integration] Could not play notification sound:', error);
         });
     } catch (error) {
-        console.log('Audio notification failed:', error);
+        console.log('[swarmUI-integration] Audio notification failed:', error);
     }
 }
 // Helper function for main button busy states
@@ -131,10 +131,10 @@ async function getSessionId() {
         extension_settings[MODULE_NAME] = settings;
         saveSettingsDebounced();
 
-        console.log(`SwarmUI: Created new session ID: ${newSessionId}`);
+        console.log(`[swarmUI-integration] SwarmUI: Created new session ID: ${newSessionId}`);
         return newSessionId;
     } catch (error) {
-        console.error('SwarmUI: Failed to create new session:', error);
+        console.error('[swarmUI-integration] SwarmUI: Failed to create new session:', error);
         throw error;
     }
 }
@@ -147,7 +147,7 @@ async function validateAndGetSessionId() {
         await getSavedT2IParams(sessionId);
         return sessionId; // Session is valid
     } catch (error) {
-        console.warn(`SwarmUI: Session ${sessionId} appears invalid, creating new one:`, error);
+        console.warn(`[swarmUI-integration] SwarmUI: Session ${sessionId} appears invalid, creating new one:`, error);
 
         // Clear cached session and create new one
         cachedSessionId = null;
@@ -162,10 +162,10 @@ async function validateAndGetSessionId() {
             extension_settings[MODULE_NAME] = settings;
             saveSettingsDebounced();
 
-            console.log(`SwarmUI: Created replacement session ID: ${newSessionId}`);
+            console.log(`[swarmUI-integration] SwarmUI: Created replacement session ID: ${newSessionId}`);
             return newSessionId;
         } catch (createError) {
-            console.error('SwarmUI: Failed to create replacement session:', createError);
+            console.error('[swarmUI-integration] SwarmUI: Failed to create replacement session:', createError);
             throw createError;
         }
     }
@@ -334,7 +334,7 @@ async function downloadImageAsBase64(imageUrl) {
         // Remove the data URL prefix to get just the base64 string
         return base64.replace(/^data:image\/[a-z]+;base64,/, '');
     } catch (error) {
-        console.error('Error downloading image:', error);
+        console.error('[swarmUI-integration] Error downloading image:', error);
         throw error;
     }
 }
@@ -358,7 +358,7 @@ async function removeGeneratingSlice(context) {
         await context.saveChat();
 
     } catch (error) {
-        console.error('Error removing generating slice:', error);
+        console.error('[swarmUI-integration] Error removing generating slice:', error);
         // Fallback: force a page refresh if all else fails
         // location.reload();
     }
@@ -519,7 +519,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
                         '<END>'
                     ],
                 });
-                console.log('generateRawWithStops result:', result);
+                console.log('[swarmUI-integration] generateRawWithStops result:', result);
                 imagePrompt = result;
             }
             else {
@@ -528,11 +528,11 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
                     prompt: prompt,
                     prefill: ''
                 });
-                console.log('generateRaw result:', result);
+                console.log('[swarmUI-integration] generateRaw result:', result);
                 imagePrompt = result;
             }
         } catch (error) {
-            console.error('generateRaw failed:', error);
+            console.error('[swarmUI-integration] generateRaw failed:', error);
             throw error;
         }
     } else {
@@ -650,7 +650,7 @@ async function generateAndSaveImage(imagePrompt) {
         try {
             data = JSON.parse(responseText);
         } catch {
-            console.error('Invalid JSON response:', responseText);
+            console.error('[swarmUI-integration] Invalid JSON response:', responseText);
             throw new Error('Invalid JSON response from server');
         }
 
@@ -772,7 +772,7 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
  */
 async function generatePromptOnly(upToMessageIndex = null) {
     if (mainButtonsBusy) {
-        console.log('SwarmUI: Previous generation still in progress...');
+        console.log('[swarmUI-integration] SwarmUI: Previous generation still in progress...');
         return;
     }
 
@@ -820,7 +820,7 @@ async function generatePromptOnly(upToMessageIndex = null) {
         playNotificationSound();
 
     } catch (error) {
-        console.error('GeneratePrompt failed:', error);
+        console.error('[swarmUI-integration] GeneratePrompt failed:', error);
         toastr.error(`Failed to generate prompt: ${error.message}`);
     } finally {
         setMainButtonsBusy(false);
@@ -832,7 +832,7 @@ async function generatePromptOnly(upToMessageIndex = null) {
  */
 async function generateImage(upToMessageIndex = null) {
     if (mainButtonsBusy) {
-        console.log('SwarmUI: Previous generation still in progress...');
+        console.log('[swarmUI-integration] SwarmUI: Previous generation still in progress...');
         return;
     }
 
@@ -858,8 +858,8 @@ async function generateImage(upToMessageIndex = null) {
         playNotificationSound();
 
     } catch (error) {
-        console.error('Generation error:', error);
-        toastr.error(`Failed to generate image: ${error.message}`);
+        console.error('[swarmUI-integration] Generation error:', error);
+        toastr.error(`[swarmUI-integration] Failed to generate image: ${error.message}`);
 
         if (generatingMessageId !== null) {
             //await removeGeneratingSlice(getContext());
@@ -874,7 +874,7 @@ async function generateImage(upToMessageIndex = null) {
  */
 async function generateImageFromMessage(messageIndex = null) {
     if (mainButtonsBusy) {
-        console.log('SwarmUI: Previous generation still in progress...');
+        console.log('[swarmUI-integration] SwarmUI: Previous generation still in progress...');
         return;
     }
 
@@ -924,7 +924,7 @@ async function generateImageFromMessage(messageIndex = null) {
         playNotificationSound();
 
     } catch (error) {
-        console.error('Generation error:', error);
+        console.error('[swarmUI-integration] Generation error:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
 
         if (generatingMessageId !== null) {
@@ -949,7 +949,7 @@ async function swarmMessageGenerateImage(e) {
     const messageId = parseInt($mes.attr('mesid'));
 
     if ($icon.hasClass('fa-hourglass-half')) {
-        console.log('SwarmUI: Previous generation still in progress...');
+        console.log('[swarmUI-integration] SwarmUI: Previous generation still in progress...');
         return;
     }
 
@@ -957,7 +957,7 @@ async function swarmMessageGenerateImage(e) {
         setBusyIcon($icon, true, 'fa-wand-magic-sparkles');
         await generateImage(messageId);
     } catch (error) {
-        console.error('SwarmUI message action failed:', error);
+        console.error('[swarmUI-integration] SwarmUI message action failed:', error);
         toastr.error(`Failed to generate image: ${error.message}`);
     } finally {
         setBusyIcon($icon, false, 'fa-wand-magic-sparkles');
@@ -971,7 +971,7 @@ async function swarmMessageGeneratePrompt(e) {
     const messageId = parseInt($mes.attr('mesid'));
 
     if ($icon.hasClass('fa-hourglass-half')) {
-        console.log('SwarmUI: Previous generation still in progress...');
+        console.log('[swarmUI-integration] SwarmUI: Previous generation still in progress...');
         return;
     }
 
@@ -979,7 +979,7 @@ async function swarmMessageGeneratePrompt(e) {
         setBusyIcon($icon, true, 'fa-pen-fancy');
         await generatePromptOnly(messageId);
     } catch (error) {
-        console.error('SwarmUI prompt generation failed:', error);
+        console.error('[swarmUI-integration] SwarmUI prompt generation failed:', error);
         toastr.error(`Failed to generate prompt: ${error.message}`);
     } finally {
         setBusyIcon($icon, false, 'fa-pen-fancy');
@@ -993,7 +993,7 @@ async function swarmMessageGenerateFromMessage(e) {
     const messageId = parseInt($mes.attr('mesid'));
 
     if ($icon.hasClass('fa-hourglass-half')) {
-        console.log('SwarmUI: Previous generation still in progress...');
+        console.log('[swarmUI-integration] SwarmUI: Previous generation still in progress...');
         return;
     }
 
@@ -1001,7 +1001,7 @@ async function swarmMessageGenerateFromMessage(e) {
         setBusyIcon($icon, true, 'fa-image');
         await generateImageFromMessage(messageId);
     } catch (error) {
-        console.error('SwarmUI image from message failed:', error);
+        console.error('[swarmUI-integration] SwarmUI image from message failed:', error);
         toastr.error(`Failed to generate image from message: ${error.message}`);
     } finally {
         setBusyIcon($icon, false, 'fa-image');
@@ -1221,7 +1221,7 @@ class SwarmPromptModal {
                 updateCharCount();
                 toastr.success('Prompt regenerated successfully!');
             } catch (error) {
-                console.error('Failed to regenerate prompt:', error);
+                console.error('[swarmUI-integration] Failed to regenerate prompt:', error);
                 toastr.error(`Failed to regenerate prompt: ${error.message}`);
             } finally {
                 regenerateBtn.disabled = false;
@@ -1252,7 +1252,7 @@ class SwarmPromptModal {
                     await this.onGenerate(finalPrompt);
                 }
             } catch (error) {
-                console.error('Failed to generate image:', error);
+                console.error('[swarmUI-integration] Failed to generate image:', error);
                 toastr.error(`Failed to generate image: ${error.message}`);
                 generateBtn.disabled = false;
                 generateBtn.innerHTML = '<i class="fa-solid fa-image"></i> Generate Image';
@@ -1267,7 +1267,7 @@ let promptModal = null;
 // Modified generateImage function to show modal first
 async function generateImageWithModal(upToMessageIndex = null) {
     if (mainButtonsBusy) {
-        console.log('SwarmUI: Previous generation still in progress...');
+        console.log('[swarmUI-integration] SwarmUI: Previous generation still in progress...');
         return;
     }
 
@@ -1298,7 +1298,7 @@ async function generateImageWithModal(upToMessageIndex = null) {
                 playNotificationSound();
 
             } catch (error) {
-                console.error('Generation error:', error);
+                console.error('[swarmUI-integration] Generation error:', error);
                 toastr.error(`Failed to generate image: ${error.message}`);
             } finally {
                 setMainButtonsBusy(false);
@@ -1312,7 +1312,7 @@ async function generateImageWithModal(upToMessageIndex = null) {
         promptModal.show(imagePrompt, upToMessageIndex);
 
     } catch (error) {
-        console.error('Failed to generate initial prompt:', error);
+        console.error('[swarmUI-integration] Failed to generate initial prompt:', error);
         toastr.error(`Failed to generate prompt: ${error.message}`);
         setMainButtonsBusy(false);
     }
@@ -1326,7 +1326,7 @@ async function swarmMessageGenerateImageWithModal(e) {
     const messageId = parseInt($mes.attr('mesid'));
 
     if ($icon.hasClass('fa-hourglass-half')) {
-        console.log('SwarmUI: Previous generation still in progress...');
+        console.log('[swarmUI-integration] SwarmUI: Previous generation still in progress...');
         return;
     }
 
@@ -1357,7 +1357,7 @@ async function swarmMessageGenerateImageWithModal(e) {
                 playNotificationSound();
 
             } catch (error) {
-                console.error('Generation error:', error);
+                console.error('[swarmUI-integration] Generation error:', error);
                 toastr.error(`Failed to generate image: ${error.message}`);
             } finally {
                 setBusyIcon($icon, false, 'fa-wand-magic-sparkles');
@@ -1371,7 +1371,7 @@ async function swarmMessageGenerateImageWithModal(e) {
         promptModal.show(imagePrompt, messageId);
 
     } catch (error) {
-        console.error('Failed to generate initial prompt:', error);
+        console.error('[swarmUI-integration] Failed to generate initial prompt:', error);
         toastr.error(`Failed to generate prompt: ${error.message}`);
         setBusyIcon($icon, false, 'fa-wand-magic-sparkles');
     }
