@@ -506,7 +506,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
         }
 
         try {
-            if (settings.use_custom_generate_raw) {
+            if (settings.use_custom_generate_raw === true) {
                 const result = await generateRawWithStops({
                     systemPrompt: systemPrompt,
                     prompt: prompt,
