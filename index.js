@@ -16,6 +16,9 @@ let cachedSessionId = null;
 let mainButtonsBusy = false;
 let promptModal = null;
 
+let currentAbortController = null;
+let currentGenerationOperation = null;
+
 // ===== NOTIFICATION & UI HELPERS =====
 
 /**
@@ -43,16 +46,29 @@ function setMainButtonsBusy(isBusy) {
 
     // Update main control buttons
     const buttonConfigs = [
-        { selector: '#swarm_generate_button', busyIcon: 'fa-hourglass-half', normalIcon: 'fa-wand-magic-sparkles' },
-        { selector: '#swarm_generate_prompt_button', busyIcon: 'fa-hourglass-half', normalIcon: 'fa-pen-fancy' },
-        { selector: '#swarm_generate_from_message_button', busyIcon: 'fa-hourglass-half', normalIcon: 'fa-image' }
+        { selector: '#swarm_generate_button', busyIcon: 'fa-times-circle', normalIcon: 'fa-wand-magic-sparkles', cancelText: 'Cancel Generation', normalText: 'Generate Image' },
+        { selector: '#swarm_generate_prompt_button', busyIcon: 'fa-times-circle', normalIcon: 'fa-pen-fancy', cancelText: 'Cancel Generation', normalText: 'Generate Prompt' },
+        { selector: '#swarm_generate_from_message_button', busyIcon: 'fa-times-circle', normalIcon: 'fa-image', cancelText: 'Cancel Generation', normalText: 'Generate from Message' }
     ];
 
     buttonConfigs.forEach(config => {
-        $(`${config.selector} i`).toggleClass(config.normalIcon, !isBusy);
-        $(`${config.selector} i`).toggleClass(config.busyIcon, isBusy);
+        const $button = $(config.selector);
+        const $icon = $button.find('i');
+
+        $icon.toggleClass(config.normalIcon, !isBusy);
+        $icon.toggleClass(config.busyIcon, isBusy);
+
+        // Update button text and functionality
+        if (isBusy) {
+            $button.attr('title', config.cancelText);
+            $button.addClass('swarm-cancel-mode');
+        } else {
+            $button.attr('title', config.normalText);
+            $button.removeClass('swarm-cancel-mode');
+        }
     });
 }
+
 
 /**
  * Update individual message action button icon states
@@ -62,8 +78,65 @@ function setMainButtonsBusy(isBusy) {
  */
 function setBusyIcon($icon, isBusy, originalClass) {
     $icon.toggleClass(originalClass, !isBusy);
-    $icon.toggleClass('fa-hourglass-half', isBusy);
+    $icon.toggleClass('fa-times-circle', isBusy);
+
+    const $button = $icon.closest('.mes_button');
+    if (isBusy) {
+        $button.attr('title', 'Cancel Generation');
+        $button.addClass('swarm-cancel-mode');
+    } else {
+        $button.attr('title', $button.data('original-title') || 'SwarmUI Action');
+        $button.removeClass('swarm-cancel-mode');
+    }
 }
+
+
+// ===== CANCELLATION HELPERS =====
+
+/**
+ * Create and store a new AbortController for the current operation
+ * @returns {AbortController} New abort controller
+ */
+function createAbortController() {
+    // Cancel any existing operation
+    if (currentAbortController) {
+        currentAbortController.abort('New operation started');
+    }
+
+    currentAbortController = new AbortController();
+    return currentAbortController;
+}
+
+/**
+ * Clear the current abort controller
+ */
+function clearAbortController() {
+    currentAbortController = null;
+    currentGenerationOperation = null;
+}
+
+/**
+ * Check if current operation was cancelled
+ * @param {AbortController} controller - The controller to check
+ * @throws {Error} If operation was cancelled
+ */
+function checkCancellation(controller) {
+    if (controller.signal.aborted) {
+        throw new Error('Operation cancelled by user');
+    }
+}
+
+/**
+ * Cancel the current generation operation
+ */
+function cancelCurrentGeneration() {
+    if (currentAbortController) {
+        currentAbortController.abort('Cancelled by user');
+        console.log('[swarmUI-integration] Generation cancelled by user');
+        toastr.info('Generation cancelled');
+    }
+}
+
 
 // ===== SETTINGS MANAGEMENT =====
 
@@ -607,12 +680,17 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
  * @param {number|null} upToMessageIndex - Optional index to treat as the last message (for message actions)
  * @returns {Promise<string>} The generated image prompt
  */
-async function generateImagePromptFromChat(upToMessageIndex = null) {
+async function generateImagePromptFromChat(upToMessageIndex = null, controller = null) {
     const context = getContext();
     const chat = context.chat;
 
     if (!Array.isArray(chat) || chat.length === 0) {
         throw new Error('No chat messages to base prompt on.');
+    }
+
+    // Check for cancellation before starting
+    if (controller) {
+        checkCancellation(controller);
     }
 
     let imagePrompt;
@@ -676,7 +754,12 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
             systemPrompt = 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.';
             prompt = formatMessages(visibleMessages);
         }
-        
+
+        // Check for cancellation before making LLM call
+        if (controller) {
+            checkCancellation(controller);
+        }
+
         try {
             if (settings.use_custom_generate_raw === true) {
                 const result = await generateRawWithStops({
@@ -690,6 +773,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
                         '<|endoftext|>',  // Generic end token
                         '<END>'
                     ],
+                    abortSignal: controller?.signal // Pass abort signal if available
                 });
                 console.log('[swarmUI-integration] generateRawWithStops result:', result);
                 imagePrompt = result;
@@ -698,12 +782,16 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
                 const result = await generateRaw({
                     systemPrompt: systemPrompt,
                     prompt: prompt,
-                    prefill: ''
+                    prefill: '',
+                    abortSignal: controller?.signal // Pass abort signal if available
                 });
                 console.log('[swarmUI-integration] generateRaw result:', result);
                 imagePrompt = result;
             }
         } catch (error) {
+            if (error.name === 'AbortError' || error.message.includes('cancelled')) {
+                throw new Error('Prompt generation cancelled');
+            }
             const methodName = settings.use_custom_generate_raw ? "generateRawWithStops" : "generateRaw";
             console.error(`[swarmUI-integration] ${methodName} failed:`, error);
             throw error;
@@ -747,7 +835,26 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
             llmPrompt = substituteParams(llmPrompt).replace('{description}', lastVisibleMessage);
         }
 
-        imagePrompt = await generateQuietPrompt(llmPrompt);
+        // Check for cancellation before making LLM call
+        if (controller) {
+            checkCancellation(controller);
+        }
+
+        try {
+            // Note: generateQuietPrompt may not support abortSignal directly
+            // You might need to wrap this in a Promise.race with a timeout/cancellation
+            imagePrompt = await generateQuietPrompt(llmPrompt);
+        } catch (error) {
+            if (error.message.includes('cancelled')) {
+                throw new Error('Prompt generation cancelled');
+            }
+            throw error;
+        }
+    }
+
+    // Check for cancellation after LLM call
+    if (controller) {
+        checkCancellation(controller);
     }
 
     // Clean up the generated prompt
@@ -762,6 +869,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
 
     return imagePrompt;
 }
+
 
 /**
  * Common function to generate and save an image using SwarmUI API
@@ -907,9 +1015,12 @@ async function handleGenerationOperation(operation, operationName, useMainBusy =
  * @param {number|null} upToMessageIndex - Optional index to treat as the last message
  * @returns {Promise<void>}
  */
-async function generatePromptOnly(upToMessageIndex = null) {
-    const operation = async () => {
-        const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
+async function generatePromptOnly(upToMessageIndex = null, controller = null) {
+    const operation = async (ctrl) => {
+        const imagePrompt = await generateImagePromptFromChat(upToMessageIndex, ctrl);
+
+        // Check for cancellation before adding message
+        checkCancellation(ctrl);
 
         const context = getContext();
         const chat = context.chat;
@@ -954,18 +1065,25 @@ async function generatePromptOnly(upToMessageIndex = null) {
     await handleGenerationOperation(operation, 'Generate prompt');
 }
 
+
 /**
  * Generate image from chat using LLM-generated prompt
  * @param {number|null} upToMessageIndex - Optional index to treat as the last message
  * @returns {Promise<void>}
  */
-async function generateImage(upToMessageIndex = null) {
-    const operation = async () => {
+async function generateImage(upToMessageIndex = null, controller = null) {
+    const operation = async (ctrl) => {
         // Generate the prompt first
-        const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
+        const imagePrompt = await generateImagePromptFromChat(upToMessageIndex, ctrl);
 
-        // Generate and save the image
-        const result = await generateAndSaveImage(imagePrompt);
+        // Check for cancellation before image generation
+        checkCancellation(ctrl);
+
+        // Generate and save the image (this could also support cancellation)
+        const result = await generateAndSaveImage(imagePrompt, ctrl);
+
+        // Check for cancellation before adding message
+        checkCancellation(ctrl);
 
         // Add final image message - insert after the specific message if specified
         await addImageMessage(
@@ -1482,26 +1600,74 @@ jQuery(async () => {
         $("#send_but").before(buttonHtml);
 
         // Bind main control buttons
-        $("#swarm_generate_button").on("click", () => {
-            if (settings.show_prompt_modal !== false) {
-                generateImageWithModal();
+        $("#swarm_generate_button").on("click", (e) => {
+            e.preventDefault();
+            if (mainButtonsBusy) {
+                cancelCurrentGeneration();
             } else {
-                generateImage();
+                if (settings.show_prompt_modal !== false) {
+                    generateImageWithModal();
+                } else {
+                    generateImage();
+                }
             }
         });
-        $("#swarm_generate_prompt_button").on("click", () => generatePromptOnly());
-        $("#swarm_generate_from_message_button").on("click", () => generateImageFromMessage());
+
+        $("#swarm_generate_prompt_button").on("click", (e) => {
+            e.preventDefault();
+            if (mainButtonsBusy) {
+                cancelCurrentGeneration();
+            } else {
+                generatePromptOnly();
+            }
+        });
+
+        $("#swarm_generate_from_message_button").on("click", (e) => {
+            e.preventDefault();
+            if (mainButtonsBusy) {
+                cancelCurrentGeneration();
+            } else {
+                generateImageFromMessage();
+            }
+        });
 
         // Bind message action buttons using event delegation
         $(document).on('click', '.swarm_mes_gen_image', (e) => {
-            if (settings.show_prompt_modal !== false) { // Default to true
-                swarmMessageGenerateImageWithModal(e);
+            e.preventDefault();
+            const $icon = $(e.currentTarget);
+
+            if ($icon.hasClass('fa-times-circle')) {
+                cancelCurrentGeneration();
             } else {
-                swarmMessageGenerateImage(e);
+                if (settings.show_prompt_modal !== false) {
+                    swarmMessageGenerateImageWithModal(e);
+                } else {
+                    swarmMessageGenerateImage(e);
+                }
             }
         });
-        $(document).on('click', '.swarm_mes_gen_prompt', swarmMessageGeneratePrompt);
-        $(document).on('click', '.swarm_mes_gen_from_msg', swarmMessageGenerateFromMessage);
+
+        $(document).on('click', '.swarm_mes_gen_prompt', (e) => {
+            e.preventDefault();
+            const $icon = $(e.currentTarget);
+
+            if ($icon.hasClass('fa-times-circle')) {
+                cancelCurrentGeneration();
+            } else {
+                swarmMessageGeneratePrompt(e);
+            }
+        });
+
+        $(document).on('click', '.swarm_mes_gen_from_msg', (e) => {
+            e.preventDefault();
+            const $icon = $(e.currentTarget);
+
+            if ($icon.hasClass('fa-times-circle')) {
+                cancelCurrentGeneration();
+            } else {
+                swarmMessageGenerateFromMessage(e);
+            }
+        });
 
         // Inject buttons into existing messages
         setTimeout(injectSwarmUIButtons, 100);
