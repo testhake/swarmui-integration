@@ -11,7 +11,6 @@ const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
 
 // Global state variables
 let settings = {};
-let generatingMessageId = null;
 let cachedSessionId = null;
 let mainButtonsBusy = false;
 let promptModal = null;
@@ -491,61 +490,6 @@ function parsePromptTemplate(template, messages) {
 }
 
 // ===== CHAT MANIPULATION HELPERS =====
-
-/**
- * Safely remove the "Generating image..." message and refresh chat UI
- * @param {Object} context - The SillyTavern context object
- */
-async function removeGeneratingSlice(context) {
-    if (generatingMessageId === null) return;
-
-    try {
-        // Store the ID before clearing it
-        const messageIdToRemove = generatingMessageId;
-        generatingMessageId = null;
-
-        // Remove from the chat array
-        context.chat.splice(messageIdToRemove, 1);
-
-        // Force a complete UI rebuild by triggering the chat changed event
-        await eventSource.emit(event_types.CHAT_CHANGED, -1);
-
-        // Save the chat to persist the changes
-        await context.saveChat();
-
-    } catch (error) {
-        console.error('[swarmUI-integration] Error removing generating slice:', error);
-        // Fallback: force a page refresh if all else fails
-        // location.reload();
-    }
-}
-
-/**
- * Add a "generating..." message to chat and return its ID
- * @returns {Promise<number>} The message ID of the generating message
- */
-async function addGeneratingMessage() {
-    const context = getContext();
-    const chat = context.chat;
-
-    const generatingMessage = {
-        name: context.name2 || 'System',
-        is_system: true,
-        mes: 'Generating image…',
-        sendDate: Date.now(),
-        extra: { isTemporary: true },
-    };
-
-    chat.push(generatingMessage);
-    generatingMessageId = chat.length - 1;
-
-    // Render the generating message
-    await eventSource.emit(event_types.MESSAGE_RECEIVED, generatingMessageId);
-    context.addOneMessage(generatingMessage);
-    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, generatingMessageId);
-
-    return generatingMessageId;
-}
 
 /**
  * Add final image message to chat at a specific position
