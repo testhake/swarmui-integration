@@ -676,7 +676,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
             systemPrompt = 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.';
             prompt = formatMessages(visibleMessages);
         }
-
+        
         try {
             if (settings.use_custom_generate_raw === true) {
                 const result = await generateRawWithStops({
@@ -704,7 +704,8 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
                 imagePrompt = result;
             }
         } catch (error) {
-            console.error('[swarmUI-integration] generateRaw failed:', error);
+            const methodName = settings.use_custom_generate_raw ? "generateRawWithStops" : "generateRaw";
+            console.error(`[swarmUI-integration] ${methodName} failed:`, error);
             throw error;
         }
     } else {
