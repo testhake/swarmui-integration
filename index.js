@@ -901,11 +901,6 @@ async function generateAndSaveImage(imagePrompt) {
     const context = getContext();
 
     try {
-        // Check for cancellation before starting
-        if (isGenerationCancelled) {
-            throw new Error('Generation was cancelled');
-        }
-
         const sessionId = await validateAndGetSessionId();
         const savedParams = await getSavedT2IParams(sessionId);
         let rawInput = { ...savedParams };
@@ -919,12 +914,7 @@ async function generateAndSaveImage(imagePrompt) {
         }
         rawInput.prompt = finalPrompt;
 
-        // Check for cancellation before making API request
-        if (isGenerationCancelled) {
-            throw new Error('Generation was cancelled');
-        }
-
-        // Generate the image with abort signal
+        // Generate the image
         const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
         const requestBody = {
             session_id: sessionId,
@@ -942,13 +932,7 @@ async function generateAndSaveImage(imagePrompt) {
             },
             body: JSON.stringify(requestBody),
             credentials: 'omit',
-            signal: currentAbortController?.signal // Include abort signal
         });
-
-        // Check for cancellation after fetch
-        if (isGenerationCancelled) {
-            throw new Error('Generation was cancelled');
-        }
 
         if (!response.ok) {
             // If the request fails, it might be due to an invalid session
@@ -979,11 +963,6 @@ async function generateAndSaveImage(imagePrompt) {
             imageUrl = `${settings.url}/${imageUrl}`;
         }
 
-        // Check for cancellation before downloading image
-        if (isGenerationCancelled) {
-            throw new Error('Generation was cancelled');
-        }
-
         // Download the image and convert to base64
         const base64Image = await downloadImageAsBase64(imageUrl);
 
@@ -1000,16 +979,10 @@ async function generateAndSaveImage(imagePrompt) {
             imagePrompt: cleanPrompt
         };
     } catch (error) {
-        // Check if error is due to cancellation
-        if (error.name === 'AbortError' || error.message === 'Generation was cancelled' || isGenerationCancelled) {
-            throw new Error('Generation was cancelled');
-        }
-
         // Re-throw with more context
         throw new Error(`Image generation failed: ${error.message}`);
     }
 }
-
 
 // ===== OPERATION HANDLERS =====
 
