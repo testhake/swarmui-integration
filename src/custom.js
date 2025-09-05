@@ -44,7 +44,12 @@ async function sendCustomOpenAIRequest(messages, stopStrings, jsonSchema, signal
     if (oai_settings.chat_completion_source == chat_completion_sources.MISTRALAI) {
         generateData.safe_prompt = false;
     }
-
+    if (oai_settings.chat_completion_source == chat_completion_sources.CUSTOM) {
+        generateData.custom_url = oai_settings.custom_url;
+        generateData.custom_include_body = oai_settings.custom_include_body;
+        generateData.custom_exclude_body = oai_settings.custom_exclude_body;
+        generateData.custom_include_headers = oai_settings.custom_include_headers;
+    }
     if (jsonSchema) {
         generateData.json_schema = jsonSchema;
     }
