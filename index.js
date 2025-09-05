@@ -85,6 +85,7 @@ function setMainButtonsBusy(isBusy) {
 }
 
 
+
 /**
  * Update individual message action button icon states
  * @param {jQuery} $icon - The icon element to update
@@ -116,6 +117,7 @@ function setBusyIcon($icon, isBusy, originalClass) {
         }
     }
 }
+
 
 
 /**
@@ -151,6 +153,7 @@ function cancelCurrentGeneration() {
         console.log('[swarmUI-integration] Generation cancelled by user');
     }
 }
+
 
 // ===== SETTINGS MANAGEMENT =====
 
@@ -890,6 +893,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
         isGenerationCancelled = false;
     }
 }
+
 
 
 /**
