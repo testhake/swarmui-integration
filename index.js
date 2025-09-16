@@ -1229,11 +1229,11 @@ class SwarmPromptModal {
         cancelBtn.addEventListener('click', closeModal);
 
         // Close on overlay click (but not on modal content)
-        this.overlay.addEventListener('click', (e) => {
-            if (e.target === this.overlay) {
-                closeModal();
-            }
-        });
+        //this.overlay.addEventListener('click', (e) => {
+        //    if (e.target === this.overlay) {
+        //        closeModal();
+        //    }
+        //});
 
         // ESC key to close
         const handleEsc = (e) => {
