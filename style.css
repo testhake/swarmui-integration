@@ -298,3 +298,18 @@
         justify-content: center;
     }
 }
+
+/* Red button */
+.swarm_mes_gen_image {
+    color: #dc3545 !important; /* Red */
+}
+
+/* Yellow button */
+.swarm_mes_gen_prompt {
+    color: #ffc107 !important; /* Yellow */
+}
+
+/* Green button */
+.swarm_mes_gen_from_msg {
+    color: #28a745 !important; /* Green */
+}
