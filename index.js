@@ -9,17 +9,225 @@ import { generateRawWithStops } from './src/custom.js';
 const MODULE_NAME = 'swarmui-integration';
 const extensionFolderPath = `scripts/extensions/third-party/${MODULE_NAME}`;
 
-// Global state variables
 let settings = {};
 let cachedSessionId = null;
-let mainButtonsBusy = false;
 let promptModal = null;
 
-// ===== NOTIFICATION & UI HELPERS =====
+const imageGenerationQueue = [];
+let isProcessingQueue = false;
+let queueProcessorRunning = false;
 
-/**
- * Play notification sound when image generation completes
- */
+class QueueItem {
+    constructor(type, messageIndex, prompt = null, customPrompt = false) {
+        this.id = Date.now() + Math.random();
+        this.type = type;
+        this.messageIndex = messageIndex;
+        this.prompt = prompt;
+        this.customPrompt = customPrompt;
+        this.status = 'pending';
+        this.error = null;
+        this.createdAt = Date.now();
+    }
+}
+
+function addToQueue(type, messageIndex = null, prompt = null, customPrompt = false) {
+    const queueItem = new QueueItem(type, messageIndex, prompt, customPrompt);
+    imageGenerationQueue.push(queueItem);
+
+    updateQueueDisplay();
+    processQueue();
+
+    return queueItem.id;
+}
+
+function removeFromQueue(itemId) {
+    const index = imageGenerationQueue.findIndex(item => item.id === itemId);
+    if (index !== -1) {
+        imageGenerationQueue.splice(index, 1);
+        updateQueueDisplay();
+    }
+}
+
+function updateQueueStatus(itemId, status, error = null) {
+    const item = imageGenerationQueue.find(item => item.id === itemId);
+    if (item) {
+        item.status = status;
+        item.error = error;
+        updateQueueDisplay();
+    }
+}
+
+function updateQueueDisplay() {
+    const $queueContainer = $('#swarm_queue_container');
+
+    if (imageGenerationQueue.length === 0) {
+        $queueContainer.hide();
+        return;
+    }
+
+    $queueContainer.show();
+
+    const $queueList = $('#swarm_queue_list');
+    $queueList.empty();
+
+    imageGenerationQueue.forEach((item, index) => {
+        const messageText = item.messageIndex !== null ?
+            getMessageAtIndex(getContext().chat, item.messageIndex)?.substring(0, 50) + '...' :
+            'Latest message';
+
+        const statusIcon = {
+            'pending': 'fa-clock text-warning',
+            'processing': 'fa-hourglass-half text-info',
+            'completed': 'fa-check text-success',
+            'error': 'fa-times text-danger'
+        }[item.status];
+
+        const queueItemHtml = `
+            <div class="swarm-queue-item" data-item-id="${item.id}">
+                <div class="swarm-queue-info">
+                    <div class="swarm-queue-type">
+                        <i class="fa-solid ${statusIcon}"></i>
+                        ${item.type === 'generate_image' ? 'Generate Image' :
+                item.type === 'generate_prompt' ? 'Generate Prompt' :
+                    'Generate from Message'}
+                    </div>
+                    <div class="swarm-queue-message">${messageText}</div>
+                    ${item.error ? `<div class="swarm-queue-error">${item.error}</div>` : ''}
+                </div>
+                <div class="swarm-queue-actions">
+                    ${item.status === 'pending' ?
+                `<button class="swarm-queue-remove" data-item-id="${item.id}" title="Remove from queue">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>` : ''}
+                </div>
+            </div>
+        `;
+
+        $queueList.append(queueItemHtml);
+    });
+}
+
+async function processQueue() {
+    if (queueProcessorRunning) return;
+    queueProcessorRunning = true;
+
+    while (imageGenerationQueue.length > 0) {
+        const item = imageGenerationQueue.find(item => item.status === 'pending');
+        if (!item) break;
+
+        updateQueueStatus(item.id, 'processing');
+
+        try {
+            await processQueueItem(item);
+            updateQueueStatus(item.id, 'completed');
+
+            setTimeout(() => {
+                removeFromQueue(item.id);
+            }, 2000);
+
+        } catch (error) {
+            console.error(`[swarmUI-integration] Queue item ${item.id} failed:`, error);
+            updateQueueStatus(item.id, 'error', error.message);
+
+            setTimeout(() => {
+                removeFromQueue(item.id);
+            }, 5000);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    queueProcessorRunning = false;
+}
+
+async function processQueueItem(item) {
+    const context = getContext();
+    const chat = context.chat;
+
+    switch (item.type) {
+        case 'generate_image': {
+            let imagePrompt;
+
+            if (item.customPrompt) {
+                imagePrompt = item.prompt;
+            } else {
+                imagePrompt = await generateImagePromptFromChat(item.messageIndex);
+            }
+
+            const result = await generateAndSaveImage(imagePrompt);
+
+            const insertAfterIndex = item.messageIndex !== null ?
+                item.messageIndex : chat.length - 1;
+
+            await addImageMessage(
+                result.savedImagePath,
+                result.imagePrompt,
+                'Generated image',
+                insertAfterIndex
+            );
+
+            playNotificationSound();
+            break;
+        }
+
+        case 'generate_prompt': {
+            const imagePrompt = await generateImagePromptFromChat(item.messageIndex);
+
+            const testMessage = {
+                name: context.name2 || 'System',
+                is_system: true,
+                mes: `${imagePrompt}`,
+                sendDate: Date.now(),
+            };
+
+            const insertAfterIndex = item.messageIndex !== null ?
+                item.messageIndex : chat.length - 1;
+
+            if (insertAfterIndex >= 0 && insertAfterIndex < chat.length) {
+                chat.splice(insertAfterIndex + 1, 0, testMessage);
+                await eventSource.emit(event_types.CHAT_CHANGED, -1);
+                context.clearChat();
+                await context.printMessages();
+            } else {
+                chat.push(testMessage);
+                await eventSource.emit(event_types.MESSAGE_RECEIVED, chat.length - 1);
+                context.addOneMessage(testMessage);
+                await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, chat.length - 1);
+            }
+
+            await context.saveChat();
+            playNotificationSound();
+            break;
+        }
+
+        case 'generate_from_message': {
+            const messageText = item.messageIndex !== null ?
+                getMessageAtIndex(chat, item.messageIndex) :
+                getLastMessage(chat);
+
+            if (!messageText || !messageText.trim()) {
+                throw new Error('Message is empty or not found.');
+            }
+
+            const imagePrompt = messageText.trim();
+            const result = await generateAndSaveImage(imagePrompt);
+
+            const insertAfterIndex = item.messageIndex !== null ?
+                item.messageIndex : chat.length - 1;
+
+            await addImageMessage(
+                result.savedImagePath,
+                result.imagePrompt,
+                'Generated image from message',
+                insertAfterIndex
+            );
+
+            playNotificationSound();
+            break;
+        }
+    }
+}
+
 function playNotificationSound() {
     try {
         const audio = new Audio();
@@ -33,43 +241,6 @@ function playNotificationSound() {
     }
 }
 
-/**
- * Update button states to show busy/loading indicators
- * @param {boolean} isBusy - Whether buttons should show busy state
- */
-function setMainButtonsBusy(isBusy) {
-    mainButtonsBusy = isBusy;
-
-    // Update main control buttons
-    const buttonConfigs = [
-        { selector: '#swarm_generate_button', busyIcon: 'fa-hourglass-half', normalIcon: 'fa-wand-magic-sparkles' },
-        { selector: '#swarm_generate_prompt_button', busyIcon: 'fa-hourglass-half', normalIcon: 'fa-pen-fancy' },
-        { selector: '#swarm_generate_from_message_button', busyIcon: 'fa-hourglass-half', normalIcon: 'fa-image' }
-    ];
-
-    buttonConfigs.forEach(config => {
-        $(`${config.selector} i`).toggleClass(config.normalIcon, !isBusy);
-        $(`${config.selector} i`).toggleClass(config.busyIcon, isBusy);
-    });
-}
-
-/**
- * Update individual message action button icon states
- * @param {jQuery} $icon - The icon element to update
- * @param {boolean} isBusy - Whether to show busy state
- * @param {string} originalClass - The original icon class
- */
-function setBusyIcon($icon, isBusy, originalClass) {
-    $icon.toggleClass(originalClass, !isBusy);
-    $icon.toggleClass('fa-hourglass-half', isBusy);
-}
-
-// ===== SETTINGS MANAGEMENT =====
-
-/**
- * Get custom model setting (exported for external use)
- * @returns {string} The custom model name or empty string
- */
 export function getCustomModel() {
     if (!settings.custom_model) {
         return '';
@@ -77,16 +248,12 @@ export function getCustomModel() {
     return String(settings.custom_model);
 }
 
-/**
- * Load extension settings from storage and populate UI controls
- */
 async function loadSettings() {
     if (!extension_settings[MODULE_NAME]) {
         extension_settings[MODULE_NAME] = {};
     }
     settings = extension_settings[MODULE_NAME];
 
-    // Populate UI controls with current settings
     const settingMappings = [
         { id: '#swarm_url', key: 'url', defaultValue: 'http://localhost:7801' },
         { id: '#swarm_session_id', key: 'session_id', defaultValue: '' },
@@ -99,20 +266,14 @@ async function loadSettings() {
         $(mapping.id).val(settings[mapping.key] || mapping.defaultValue).trigger('input');
     });
 
-    // Handle checkbox settings
     $('#swarm_append_prompt').prop('checked', !!settings.append_prompt).trigger('input');
     $('#swarm_use_raw').prop('checked', !!settings.use_raw).trigger('input');
     $('#swarm_use_custom_generate_raw').prop('checked', !!settings.use_custom_generate_raw).trigger('input');
     $('#swarm_show_prompt_modal').prop('checked', !!settings.show_prompt_modal).trigger('input');
 
-    // Load cached session ID if it exists in settings
     cachedSessionId = settings.cached_session_id || null;
 }
 
-/**
- * Handle input changes and save settings
- * @param {Event} event - The input change event
- */
 function onInput(event) {
     const id = event.target.id.replace('swarm_', '');
 
@@ -127,19 +288,12 @@ function onInput(event) {
     extension_settings[MODULE_NAME] = settings;
     saveSettingsDebounced();
 
-    // Clear cached session if URL changes
     if (id === 'url') {
         cachedSessionId = null;
         delete settings.cached_session_id;
     }
 }
 
-// ===== SWARMUI API HELPERS =====
-
-/**
- * Create a new SwarmUI session
- * @returns {Promise<string>} The new session ID
- */
 async function createNewSession() {
     const url = `${settings.url}/API/GetNewSession`;
     const response = await fetch(url, {
@@ -158,12 +312,7 @@ async function createNewSession() {
     return data.session_id;
 }
 
-/**
- * Get session ID (manual, cached, or create new)
- * @returns {Promise<string>} A valid session ID
- */
 async function getSessionId() {
-    // Priority: manual session ID > cached session ID > create new
     if (settings.session_id && settings.session_id.trim()) {
         return settings.session_id.trim();
     }
@@ -172,7 +321,6 @@ async function getSessionId() {
         return cachedSessionId;
     }
 
-    // Create new session and cache it
     try {
         const newSessionId = await createNewSession();
         cachedSessionId = newSessionId;
@@ -188,21 +336,15 @@ async function getSessionId() {
     }
 }
 
-/**
- * Validate session and get a working session ID
- * @returns {Promise<string>} A validated session ID
- */
 async function validateAndGetSessionId() {
     let sessionId = await getSessionId();
 
-    // Test the session ID by trying to get saved params
     try {
         await getSavedT2IParams(sessionId);
-        return sessionId; // Session is valid
+        return sessionId;
     } catch (error) {
         console.warn(`[swarmUI-integration] Session ${sessionId} appears invalid, creating new one:`, error);
 
-        // Clear cached session and create new one
         cachedSessionId = null;
         delete settings.cached_session_id;
 
@@ -222,12 +364,6 @@ async function validateAndGetSessionId() {
     }
 }
 
-/**
- * Get the last saved T2I parameters from SwarmUI
- * Handles the nested shape: { rawInput: { rawInput: {...}, *saved*at: "..." } }
- * @param {string} sessionId - The session ID to use
- * @returns {Promise<Object>} The saved parameters object
- */
 async function getSavedT2IParams(sessionId) {
     const url = `${settings.url}/API/GetSavedT2IParams?skip_zrok_interstitial=1`;
     const response = await fetch(url, {
@@ -257,11 +393,6 @@ async function getSavedT2IParams(sessionId) {
     return {};
 }
 
-/**
- * Download image from URL and convert to base64
- * @param {string} imageUrl - The URL of the image to download
- * @returns {Promise<string>} Base64 encoded image data
- */
 async function downloadImageAsBase64(imageUrl) {
     try {
         const response = await fetch(imageUrl, {
@@ -276,7 +407,6 @@ async function downloadImageAsBase64(imageUrl) {
         const blob = await response.blob();
         const base64 = await getBase64Async(blob);
 
-        // Remove the data URL prefix to get just the base64 string
         return base64.replace(/^data:image\/[a-z]+;base64,/, '');
     } catch (error) {
         console.error('[swarmUI-integration] Error downloading image:', error);
@@ -284,15 +414,6 @@ async function downloadImageAsBase64(imageUrl) {
     }
 }
 
-// ===== MESSAGE PROCESSING HELPERS =====
-
-/**
- * Get visible messages from chat up to a specific index
- * @param {Array} chat - The chat array
- * @param {number} count - Number of messages to retrieve
- * @param {number} upToIndex - Maximum index to consider (exclusive)
- * @returns {Array} Array of visible messages
- */
 function getVisibleMessagesUpTo(chat, count, upToIndex = chat.length) {
     const visibleMessages = [];
     const endIndex = Math.min(upToIndex, chat.length);
@@ -300,7 +421,6 @@ function getVisibleMessagesUpTo(chat, count, upToIndex = chat.length) {
     for (let i = endIndex - 1; i >= 0 && visibleMessages.length < count; i--) {
         const message = chat[i];
 
-        // Skip messages that are invisible to AI
         if (isMessageInvisible(message)) {
             continue;
         }
@@ -314,21 +434,10 @@ function getVisibleMessagesUpTo(chat, count, upToIndex = chat.length) {
     return visibleMessages;
 }
 
-/**
- * Get the last X visible messages from the chat
- * @param {Array} chat - The chat array
- * @param {number} count - Number of messages to retrieve
- * @returns {Array} Array of visible messages
- */
 function getVisibleMessages(chat, count) {
     return getVisibleMessagesUpTo(chat, count, chat.length);
 }
 
-/**
- * Check if a message should be invisible to AI processing
- * @param {Object} message - The message object to check
- * @returns {boolean} True if message should be skipped
- */
 function isMessageInvisible(message) {
     return message.is_system ||
         message.extra?.isTemporary ||
@@ -339,11 +448,6 @@ function isMessageInvisible(message) {
         message.mes === 'Generating prompt...';
 }
 
-/**
- * Get the last message from the chat (even if invisible)
- * @param {Array} chat - The chat array
- * @returns {string|null} The last message text or null
- */
 function getLastMessage(chat) {
     if (!Array.isArray(chat) || chat.length === 0) {
         return null;
@@ -352,12 +456,6 @@ function getLastMessage(chat) {
     return lastMessage ? lastMessage.mes || '' : null;
 }
 
-/**
- * Get a specific message from the chat by index
- * @param {Array} chat - The chat array
- * @param {number} index - The message index
- * @returns {string|null} The message text or null
- */
 function getMessageAtIndex(chat, index) {
     if (!Array.isArray(chat) || index < 0 || index >= chat.length) {
         return null;
@@ -366,29 +464,16 @@ function getMessageAtIndex(chat, index) {
     return message ? message.mes || '' : null;
 }
 
-/**
- * Format messages for display in prompts
- * @param {Array} messages - Array of message objects
- * @returns {string} Formatted message string
- */
 function formatMessages(messages) {
     return messages.map(msg => `${msg.name}: ${msg.mes}`).join('\n\n');
 }
 
-/**
- * Replace message tags in template with actual message content
- * @param {string} template - The template string with message tags
- * @param {Array} messages - Array of message objects
- * @returns {string} Template with message tags replaced
- */
 function replaceMessageTags(template, messages) {
     let result = template;
 
-    // Replace all message tags
     result = result.replace(/{all_messages}/g, formatMessages(messages));
-    result = result.replace(/{description}/g, formatMessages(messages)); // Keep backward compatibility
+    result = result.replace(/{description}/g, formatMessages(messages));
 
-    // Previous messages (all but last N)
     if (messages.length > 1) {
         result = result.replace(/{previous_messages}/g, formatMessages(messages.slice(0, -1)));
     } else {
@@ -401,7 +486,6 @@ function replaceMessageTags(template, messages) {
         result = result.replace(/{previous_messages2}/g, '');
     }
 
-    // Individual message tags
     if (messages.length > 0) {
         const lastMessage = messages[messages.length - 1];
         result = result.replace(/{message_last}/g, `${lastMessage.name}: ${lastMessage.mes}`);
@@ -419,27 +503,18 @@ function replaceMessageTags(template, messages) {
     return result;
 }
 
-/**
- * Parse prompt template with message tags and structured messages
- * @param {string} template - The template to parse
- * @param {Array} messages - Array of message objects
- * @returns {Array} Array of parsed messages with role and content
- */
 function parsePromptTemplate(template, messages) {
-    // First replace message tags
     const processedTemplate = replaceMessageTags(template, messages);
 
-    // Combined regex to match all message types while preserving order
     const messageRegex = /\[(system|user|assistant)\](.*?)\[\/\1\]/gs;
 
     const parsedMessages = [];
     let hasStructuredMessages = false;
     let match;
 
-    // Process matches in the order they appear in the template
     while ((match = messageRegex.exec(processedTemplate)) !== null) {
         hasStructuredMessages = true;
-        const role = match[1]; // system, user, or assistant
+        const role = match[1];
         const content = match[2].trim();
 
         parsedMessages.push({
@@ -448,16 +523,12 @@ function parsePromptTemplate(template, messages) {
         });
     }
 
-    // If no structured messages found, fall back to old behavior
     if (!hasStructuredMessages) {
-        // Check for old-style {description} or new message tags
         const hasMessageTags = /{(all_messages|previous_messages|previous_messages2|message_last|message_beforelast|description)}/.test(processedTemplate);
 
         if (hasMessageTags) {
-            // The template has been processed, use it as system + user format
             const lines = processedTemplate.split('\n').filter(line => line.trim());
             if (lines.length > 1) {
-                // Multiple lines - first as system, rest as user
                 parsedMessages.push({
                     role: 'system',
                     content: lines[0]
@@ -467,14 +538,12 @@ function parsePromptTemplate(template, messages) {
                     content: lines.slice(1).join('\n')
                 });
             } else {
-                // Single line - use as user message
                 parsedMessages.push({
                     role: 'user',
                     content: processedTemplate
                 });
             }
         } else {
-            // No message tags, use the whole template as system prompt
             parsedMessages.push({
                 role: 'system',
                 content: processedTemplate || 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.'
@@ -489,16 +558,6 @@ function parsePromptTemplate(template, messages) {
     return parsedMessages;
 }
 
-// ===== CHAT MANIPULATION HELPERS =====
-
-/**
- * Add final image message to chat at a specific position
- * @param {string} savedImagePath - Path to the saved image
- * @param {string} imagePrompt - The prompt used for generation
- * @param {string} messagePrefix - Prefix for the message text
- * @param {number|null} insertAfterIndex - Index of message to insert after (null = append to end)
- * @returns {Promise<number>} The message ID of the added image message
- */
 async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Generated image', insertAfterIndex = null) {
     const context = getContext();
     const chat = context.chat;
@@ -517,24 +576,18 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
     let imageMessageId;
 
     if (insertAfterIndex !== null && insertAfterIndex >= 0 && insertAfterIndex < chat.length) {
-        // Insert after the specific message
         chat.splice(insertAfterIndex + 1, 0, imageMessage);
         imageMessageId = insertAfterIndex + 1;
 
-        // Update all message IDs after the insertion point
-        // This is important for maintaining proper message indexing
         await eventSource.emit(event_types.CHAT_CHANGED, -1);
 
-        // Re-render the entire chat to ensure proper ordering
         context.clearChat();
         await context.printMessages();
 
     } else {
-        // Fallback to appending at the end (original behavior)
         chat.push(imageMessage);
         imageMessageId = chat.length - 1;
 
-        // Emit events to properly render the message with image
         await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
         context.addOneMessage(imageMessage);
         await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
@@ -544,13 +597,6 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
     return imageMessageId;
 }
 
-// ===== CORE GENERATION FUNCTIONS =====
-
-/**
- * Common function to generate a prompt from chat messages using LLM
- * @param {number|null} upToMessageIndex - Optional index to treat as the last message (for message actions)
- * @returns {Promise<string>} The generated image prompt
- */
 async function generateImagePromptFromChat(upToMessageIndex = null) {
     const context = getContext();
     const chat = context.chat;
@@ -562,7 +608,6 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
     let imagePrompt;
 
     if (settings.use_raw) {
-        // Use generateRaw with multiple messages
         const messageCount = settings.message_count || 5;
         const visibleMessages = upToMessageIndex !== null
             ? getVisibleMessagesUpTo(chat, messageCount, upToMessageIndex + 1)
@@ -572,7 +617,6 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
             throw new Error('No visible messages found to base prompt on.');
         }
 
-        // Get the instruction template and parse it with message tags
         const instructionTemplate = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}';
         const parsedMessages = parsePromptTemplate(instructionTemplate, visibleMessages);
 
@@ -580,22 +624,17 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
         let prompt;
 
         if (parsedMessages.length > 0) {
-            // Check if we have any system messages
             const hasSystemMessages = parsedMessages.some(msg => msg.role === 'system');
 
             if (hasSystemMessages) {
-                // Find the first system message to use as systemPrompt parameter
                 const firstSystemMessage = parsedMessages.find(msg => msg.role === 'system');
                 systemPrompt = firstSystemMessage.content;
 
-                // Create chat completion array preserving the original order
-                // but exclude the first system message since it's used as systemPrompt
                 const chatMessages = [];
                 let firstSystemFound = false;
 
                 for (const msg of parsedMessages) {
                     if (msg.role === 'system' && !firstSystemFound) {
-                        // Skip the first system message as it's used for systemPrompt
                         firstSystemFound = true;
                         continue;
                     }
@@ -608,7 +647,6 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
 
                 prompt = chatMessages;
             } else {
-                // No system messages, use all messages as-is
                 systemPrompt = '';
                 prompt = parsedMessages.map(msg => ({
                     role: msg.role,
@@ -616,7 +654,6 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
                 }));
             }
         } else {
-            // Fallback to simple string format
             systemPrompt = 'Generate a detailed, descriptive prompt for an image generation AI based on the following conversation.';
             prompt = formatMessages(visibleMessages);
         }
@@ -628,10 +665,10 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
                     prompt: prompt,
                     prefill: '',
                     stopStrings: [
-                        '<|im_end|>',     // ChatML end token (most important for Mistral)
-                        '</s>',           // End of sequence token
-                        '[/INST]',        // End of instruction token
-                        '<|endoftext|>',  // Generic end token
+                        '<|im_end|>',
+                        '</s>',
+                        '[/INST]',
+                        '<|endoftext|>',
                         '<END>'
                     ],
                 });
@@ -653,20 +690,16 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
             throw error;
         }
     } else {
-        // Use the original method with generateQuietPrompt
-        // Find the last message that is visible to the AI
         let lastVisibleMessage = '';
         const searchUpTo = upToMessageIndex !== null ? upToMessageIndex + 1 : chat.length;
 
         for (let i = searchUpTo - 1; i >= 0; i--) {
             const message = chat[i];
 
-            // Skip messages that are invisible to AI
             if (isMessageInvisible(message)) {
                 continue;
             }
 
-            // Found the last visible message
             lastVisibleMessage = message.mes || '';
             break;
         }
@@ -675,7 +708,6 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
             throw new Error('No visible messages found to base prompt on.');
         }
 
-        // For backward compatibility, also check for new message tags in non-raw mode
         const messageCount = settings.message_count || 5;
         const visibleMessages = upToMessageIndex !== null
             ? getVisibleMessagesUpTo(chat, messageCount, upToMessageIndex + 1)
@@ -683,18 +715,15 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
 
         let llmPrompt = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}';
 
-        // Replace message tags if they exist
         if (/{(all_messages|previous_messages|previous_messages2|message_last|message_beforelast)}/.test(llmPrompt)) {
             llmPrompt = replaceMessageTags(llmPrompt, visibleMessages);
         } else {
-            // Backward compatibility - replace {description} with last message
             llmPrompt = substituteParams(llmPrompt).replace('{description}', lastVisibleMessage);
         }
 
         imagePrompt = await generateQuietPrompt(llmPrompt);
     }
 
-    // Clean up the generated prompt
     imagePrompt = imagePrompt
         .replace(/\*/g, "")
         .replace(/\"/g, "")
@@ -707,11 +736,6 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
     return imagePrompt;
 }
 
-/**
- * Common function to generate and save an image using SwarmUI API
- * @param {string} imagePrompt - The prompt to use for image generation
- * @returns {Promise<Object>} Object containing savedImagePath and imagePrompt
- */
 async function generateAndSaveImage(imagePrompt) {
     const context = getContext();
 
@@ -720,7 +744,6 @@ async function generateAndSaveImage(imagePrompt) {
         const savedParams = await getSavedT2IParams(sessionId);
         let rawInput = { ...savedParams };
 
-        // Clean and build the prompt
         const cleanPrompt = imagePrompt;
         let finalPrompt = cleanPrompt;
 
@@ -729,7 +752,6 @@ async function generateAndSaveImage(imagePrompt) {
         }
         rawInput.prompt = finalPrompt;
 
-        // Generate the image
         const apiUrl = `${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`;
         const requestBody = {
             session_id: sessionId,
@@ -750,9 +772,7 @@ async function generateAndSaveImage(imagePrompt) {
         });
 
         if (!response.ok) {
-            // If the request fails, it might be due to an invalid session
             if (response.status === 401 || response.status === 403) {
-                // Clear cached session for next attempt
                 cachedSessionId = null;
                 delete settings.cached_session_id;
             }
@@ -772,20 +792,16 @@ async function generateAndSaveImage(imagePrompt) {
             throw new Error('No images returned from API');
         }
 
-        // Normalize image url
         let imageUrl = data.images[0];
         if (typeof imageUrl === 'string' && !imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
             imageUrl = `${settings.url}/${imageUrl}`;
         }
 
-        // Download the image and convert to base64
         const base64Image = await downloadImageAsBase64(imageUrl);
 
-        // Get character name for filename
         const characterName = context.characterId !== undefined ?
             getCharaFilename(context.characterId) : 'unknown';
 
-        // Save the image to SillyTavern's file system
         const filename = `swarm_${characterName}_${humanizedDateTime()}`;
         const savedImagePath = await saveBase64AsFile(base64Image, characterName, filename, 'png');
 
@@ -794,262 +810,55 @@ async function generateAndSaveImage(imagePrompt) {
             imagePrompt: cleanPrompt
         };
     } catch (error) {
-        // Re-throw with more context
         throw new Error(`Image generation failed: ${error.message}`);
     }
 }
 
-// ===== OPERATION HANDLERS =====
-
-/**
- * Common handler for generation operations with error handling and busy state management
- * @param {Function} operation - The async operation to perform
- * @param {string} operationName - Name of the operation for logging/errors
- * @param {boolean} useMainBusy - Whether to use main button busy states
- * @param {jQuery|null} $icon - Icon element for message actions (or null for main buttons)
- * @param {string} originalIconClass - Original icon class for message actions
- * @returns {Promise<void>}
- */
-async function handleGenerationOperation(operation, operationName, useMainBusy = true, $icon = null, originalIconClass = '') {
-    // Check if already busy
-    if (useMainBusy && mainButtonsBusy) {
-        console.log(`[swarmUI-integration] ${operationName}: Previous generation still in progress...`);
-        return;
-    }
-
-    if ($icon && $icon.hasClass('fa-hourglass-half')) {
-        console.log(`[swarmUI-integration] ${operationName}: Previous generation still in progress...`);
-        return;
-    }
-
-    try {
-        // Set busy state
-        if (useMainBusy) {
-            setMainButtonsBusy(true);
-        } else if ($icon) {
-            setBusyIcon($icon, true, originalIconClass);
-        }
-
-        // Execute the operation
-        await operation();
-
-    } catch (error) {
-        console.error(`[swarmUI-integration] ${operationName} failed:`, error);
-        toastr.error(`Failed to ${operationName.toLowerCase()}: ${error.message}`);
-    } finally {
-        // Clear busy state
-        if (useMainBusy) {
-            setMainButtonsBusy(false);
-        } else if ($icon) {
-            setBusyIcon($icon, false, originalIconClass);
-        }
-    }
-}
-
-/**
- * Generate prompt only (test mode)
- * @param {number|null} upToMessageIndex - Optional index to treat as the last message
- * @returns {Promise<void>}
- */
-async function generatePromptOnly(upToMessageIndex = null) {
-    const operation = async () => {
-        const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
-
-        const context = getContext();
-        const chat = context.chat;
-
-        // Add the prompt test result message
-        const testMessage = {
-            name: context.name2 || 'System',
-            is_system: true,
-            mes: `${imagePrompt}`,
-            sendDate: Date.now(),
-        };
-
-        let testMessageId;
-
-        if (upToMessageIndex !== null && upToMessageIndex >= 0 && upToMessageIndex < chat.length) {
-            // Insert after the specific message
-            chat.splice(upToMessageIndex + 1, 0, testMessage);
-            testMessageId = upToMessageIndex + 1;
-
-            // Re-render the entire chat to ensure proper ordering
-            await eventSource.emit(event_types.CHAT_CHANGED, -1);
-            context.clearChat();
-            await context.printMessages();
-
-        } else {
-            // Fallback to appending at the end
-            chat.push(testMessage);
-            testMessageId = chat.length - 1;
-
-            // Render the test message
-            await eventSource.emit(event_types.MESSAGE_RECEIVED, testMessageId);
-            context.addOneMessage(testMessage);
-            await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, testMessageId);
-        }
-
-        await context.saveChat();
-
-        toastr.success('Prompt generated successfully!');
-        playNotificationSound();
-    };
-
-    await handleGenerationOperation(operation, 'Generate prompt');
-}
-
-/**
- * Generate image from chat using LLM-generated prompt
- * @param {number|null} upToMessageIndex - Optional index to treat as the last message
- * @returns {Promise<void>}
- */
-async function generateImage(upToMessageIndex = null) {
-    const operation = async () => {
-        // Generate the prompt first
-        const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
-
-        // Generate and save the image
-        const result = await generateAndSaveImage(imagePrompt);
-
-        // Add final image message - insert after the specific message if specified
-        await addImageMessage(
-            result.savedImagePath,
-            result.imagePrompt,
-            'Generated image',
-            upToMessageIndex
-        );
-
-        playNotificationSound();
-    };
-
-    await handleGenerationOperation(operation, 'Generate image');
-}
-
-/**
- * Generate image directly from the last message (no LLM prompt generation)
- * @param {number|null} messageIndex - Optional specific message index
- * @returns {Promise<void>}
- */
-async function generateImageFromMessage(messageIndex = null) {
-    const operation = async () => {
-        const context = getContext();
-        const chat = context.chat;
-
-        if (!Array.isArray(chat) || chat.length === 0) {
-            throw new Error('No chat messages to base image on.');
-        }
-
-        // Get the message text - either from specific index or last message
-        let messageText;
-        let targetIndex = messageIndex;
-
-        if (messageIndex !== null) {
-            messageText = getMessageAtIndex(chat, messageIndex);
-        } else {
-            messageText = getLastMessage(chat);
-            targetIndex = chat.length - 1; // Use last message index for positioning
-        }
-
-        if (!messageText || !messageText.trim()) {
-            throw new Error('Message is empty or not found.');
-        }
-
-        // Use the message directly as prompt (no LLM processing)
-        const imagePrompt = messageText.trim();
-
-        // Generate and save the image
-        const result = await generateAndSaveImage(imagePrompt);
-
-        // Add final image message after the source message
-        await addImageMessage(
-            result.savedImagePath,
-            result.imagePrompt,
-            'Generated image from message',
-            targetIndex
-        );
-
-        playNotificationSound();
-    };
-
-    await handleGenerationOperation(operation, 'Generate image from message');
-}
-
-// ===== MESSAGE ACTION HANDLERS =====
-
-/**
- * Message action: Generate image with LLM prompt
- * @param {Event} e - The click event
- * @returns {Promise<void>}
- */
-async function swarmMessageGenerateImage(e) {
+function swarmMessageGenerateImage(e) {
     const $icon = $(e.currentTarget);
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
 
-    const operation = async () => {
-        await generateImage(messageId);
-    };
-
-    await handleGenerationOperation(operation, 'Generate image', false, $icon, 'fa-wand-magic-sparkles');
+    if (settings.show_prompt_modal !== false) {
+        swarmMessageGenerateImageWithModal(e);
+    } else {
+        addToQueue('generate_image', messageId);
+        toastr.info('Image generation added to queue');
+    }
 }
 
-/**
- * Message action: Generate prompt only
- * @param {Event} e - The click event
- * @returns {Promise<void>}
- */
-async function swarmMessageGeneratePrompt(e) {
+function swarmMessageGeneratePrompt(e) {
     const $icon = $(e.currentTarget);
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
 
-    const operation = async () => {
-        await generatePromptOnly(messageId);
-    };
-
-    await handleGenerationOperation(operation, 'Generate prompt', false, $icon, 'fa-pen-fancy');
+    addToQueue('generate_prompt', messageId);
+    toastr.info('Prompt generation added to queue');
 }
 
-/**
- * Message action: Generate image from message directly
- * @param {Event} e - The click event
- * @returns {Promise<void>}
- */
-async function swarmMessageGenerateFromMessage(e) {
+function swarmMessageGenerateFromMessage(e) {
     const $icon = $(e.currentTarget);
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
 
-    const operation = async () => {
-        await generateImageFromMessage(messageId);
-    };
-
-    await handleGenerationOperation(operation, 'Generate image from message', false, $icon, 'fa-image');
+    addToQueue('generate_from_message', messageId);
+    toastr.info('Image generation from message added to queue');
 }
 
-// ===== UI INJECTION HELPERS =====
-
-/**
- * Function to inject SwarmUI buttons into message actions
- */
 function injectSwarmUIButtons() {
-    // Add our buttons to any extraMesButtons containers that don't already have them
     $('.extraMesButtons').each(function () {
         const $container = $(this);
 
-        // Skip if we've already added our buttons to this container
         if ($container.find('.swarm_mes_button').length > 0) {
             return;
         }
 
-        // Create our three buttons
         const swarmButtons = `
             <div title="SwarmUI: Generate Image (LLM Prompt)" class="mes_button swarm_mes_button swarm_mes_gen_image fa-solid fa-wand-magic-sparkles" data-i18n="[title]SwarmUI: Generate Image (LLM Prompt)"></div>
             <div title="SwarmUI: Generate Prompt Only" class="mes_button swarm_mes_button swarm_mes_gen_prompt fa-solid fa-pen-fancy" data-i18n="[title]SwarmUI: Generate Prompt Only"></div>
             <div title="SwarmUI: Generate Image from Message" class="mes_button swarm_mes_button swarm_mes_gen_from_msg fa-solid fa-image" data-i18n="[title]SwarmUI: Generate Image from Message"></div>
         `;
 
-        // Insert after the existing sd_message_gen button if it exists, or at the beginning
         const $sdButton = $container.find('.sd_message_gen');
         if ($sdButton.length > 0) {
             $sdButton.after(swarmButtons);
@@ -1059,17 +868,12 @@ function injectSwarmUIButtons() {
     });
 }
 
-/**
- * Function to observe for new messages and inject buttons
- */
 function observeForNewMessages() {
-    // Use MutationObserver to watch for new messages being added
     const observer = new MutationObserver(function (mutations) {
         let shouldInject = false;
 
         mutations.forEach(function (mutation) {
             if (mutation.type === 'childList') {
-                // Check if any new nodes contain message structures
                 mutation.addedNodes.forEach(function (node) {
                     if (node.nodeType === Node.ELEMENT_NODE) {
                         const $node = $(node);
@@ -1082,12 +886,10 @@ function observeForNewMessages() {
         });
 
         if (shouldInject) {
-            // Small delay to ensure DOM is ready
             setTimeout(injectSwarmUIButtons, 50);
         }
     });
 
-    // Observe the chat container for changes
     const chatContainer = document.getElementById('chat');
     if (chatContainer) {
         observer.observe(chatContainer, {
@@ -1097,11 +899,6 @@ function observeForNewMessages() {
     }
 }
 
-// ===== MODAL SYSTEM =====
-
-/**
- * Modal class for prompt preview and editing
- */
 class SwarmPromptModal {
     constructor() {
         this.isVisible = false;
@@ -1113,11 +910,6 @@ class SwarmPromptModal {
         this.upToMessageIndex = null;
     }
 
-    /**
-     * Show the modal with a generated prompt
-     * @param {string} prompt - The prompt to display
-     * @param {number|null} upToMessageIndex - Optional message index context
-     */
     show(prompt, upToMessageIndex = null) {
         if (this.isVisible) {
             this.hide();
@@ -1181,7 +973,6 @@ class SwarmPromptModal {
         document.body.appendChild(this.overlay);
         this.bindEvents();
 
-        // Focus the textarea and select all text
         setTimeout(() => {
             this.textarea = this.overlay.querySelector('.swarm-prompt-textarea');
             this.textarea.focus();
@@ -1189,9 +980,6 @@ class SwarmPromptModal {
         }, 100);
     }
 
-    /**
-     * Hide and cleanup the modal
-     */
     hide() {
         if (this.overlay) {
             document.body.removeChild(this.overlay);
@@ -1201,9 +989,6 @@ class SwarmPromptModal {
         this.textarea = null;
     }
 
-    /**
-     * Bind event handlers for modal interactions
-     */
     bindEvents() {
         const textarea = this.overlay.querySelector('.swarm-prompt-textarea');
         const charCount = this.overlay.querySelector('.char-count');
@@ -1212,14 +997,12 @@ class SwarmPromptModal {
         const cancelBtn = this.overlay.querySelector('.cancel-btn');
         const closeBtn = this.overlay.querySelector('.swarm-modal-close');
 
-        // Update character count
         const updateCharCount = () => {
             charCount.textContent = textarea.value.length;
         };
 
         textarea.addEventListener('input', updateCharCount);
 
-        // Close modal handlers
         const closeModal = () => {
             this.hide();
             if (this.onCancel) this.onCancel();
@@ -1228,14 +1011,6 @@ class SwarmPromptModal {
         closeBtn.addEventListener('click', closeModal);
         cancelBtn.addEventListener('click', closeModal);
 
-        // Close on overlay click (but not on modal content)
-        //this.overlay.addEventListener('click', (e) => {
-        //    if (e.target === this.overlay) {
-        //        closeModal();
-        //    }
-        //});
-
-        // ESC key to close
         const handleEsc = (e) => {
             if (e.key === 'Escape' && this.isVisible) {
                 closeModal();
@@ -1244,7 +1019,6 @@ class SwarmPromptModal {
         };
         document.addEventListener('keydown', handleEsc);
 
-        // Regenerate prompt
         regenerateBtn.addEventListener('click', async () => {
             if (regenerateBtn.disabled) return;
 
@@ -1266,7 +1040,6 @@ class SwarmPromptModal {
             }
         });
 
-        // Generate image with current prompt
         generateBtn.addEventListener('click', async () => {
             if (generateBtn.disabled) return;
 
@@ -1278,19 +1051,17 @@ class SwarmPromptModal {
             }
 
             generateBtn.disabled = true;
-            generateBtn.innerHTML = '<span class="swarm-loading-spinner"></span> Generating Image...';
+            generateBtn.innerHTML = '<span class="swarm-loading-spinner"></span> Adding to Queue...';
 
             try {
-                // Hide modal first
                 this.hide();
 
-                // Call the generate function with the edited prompt
                 if (this.onGenerate) {
                     await this.onGenerate(finalPrompt);
                 }
             } catch (error) {
-                console.error('[swarmUI-integration] Failed to generate image:', error);
-                toastr.error(`Failed to generate image: ${error.message}`);
+                console.error('[swarmUI-integration] Failed to add to queue:', error);
+                toastr.error(`Failed to add to queue: ${error.message}`);
                 generateBtn.disabled = false;
                 generateBtn.innerHTML = '<i class="fa-solid fa-image"></i> Generate Image';
             }
@@ -1298,107 +1069,49 @@ class SwarmPromptModal {
     }
 }
 
-// ===== MODAL-ENHANCED GENERATION FUNCTIONS =====
-
-/**
- * Generate image with modal prompt review
- * @param {number|null} upToMessageIndex - Optional message index context
- * @returns {Promise<void>}
- */
 async function generateImageWithModal(upToMessageIndex = null) {
-    const operation = async () => {
-        // Generate the initial prompt
+    try {
         const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
-        // Show modal with the generated prompt
         if (!promptModal) {
             promptModal = new SwarmPromptModal();
         }
 
         promptModal.onGenerate = async (finalPrompt) => {
-            try {
-                // Generate and save the image with the final prompt
-                const result = await generateAndSaveImage(finalPrompt);
-
-                // Add final image message - insert after the specific message if specified
-                await addImageMessage(
-                    result.savedImagePath,
-                    result.imagePrompt,
-                    'Generated image',
-                    upToMessageIndex
-                );
-
-                playNotificationSound();
-
-            } catch (error) {
-                console.error('[swarmUI-integration] Generation error:', error);
-                toastr.error(`Failed to generate image: ${error.message}`);
-            } finally {
-                setMainButtonsBusy(false);
-            }
+            addToQueue('generate_image', upToMessageIndex, finalPrompt, true);
+            toastr.success('Custom prompt image generation added to queue');
         };
 
         promptModal.onCancel = () => {
-            setMainButtonsBusy(false);
+            console.log('Modal cancelled');
         };
 
         promptModal.show(imagePrompt, upToMessageIndex);
-    };
-
-    await handleGenerationOperation(operation, 'Generate image with modal');
+    } catch (error) {
+        console.error('[swarmUI-integration] Failed to generate initial prompt:', error);
+        toastr.error(`Failed to generate prompt: ${error.message}`);
+    }
 }
 
-/**
- * Message action: Generate image with modal prompt review
- * @param {Event} e - The click event
- * @returns {Promise<void>}
- */
 async function swarmMessageGenerateImageWithModal(e) {
     const $icon = $(e.currentTarget);
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
 
-    if ($icon.hasClass('fa-hourglass-half')) {
-        console.log('[swarmUI-integration] SwarmUI: Previous generation still in progress...');
-        return;
-    }
-
-    setBusyIcon($icon, true, 'fa-wand-magic-sparkles');
-
     try {
-        // Generate the initial prompt
         const imagePrompt = await generateImagePromptFromChat(messageId);
 
-        // Show modal with the generated prompt
         if (!promptModal) {
             promptModal = new SwarmPromptModal();
         }
 
         promptModal.onGenerate = async (finalPrompt) => {
-            try {
-                // Generate and save the image with the final prompt
-                const result = await generateAndSaveImage(finalPrompt);
-
-                // Add final image message - insert after the specific message
-                await addImageMessage(
-                    result.savedImagePath,
-                    result.imagePrompt,
-                    'Generated image',
-                    messageId
-                );
-
-                playNotificationSound();
-
-            } catch (error) {
-                console.error('[swarmUI-integration] Generation error:', error);
-                toastr.error(`Failed to generate image: ${error.message}`);
-            } finally {
-                setBusyIcon($icon, false, 'fa-wand-magic-sparkles');
-            }
+            addToQueue('generate_image', messageId, finalPrompt, true);
+            toastr.success('Custom prompt image generation added to queue');
         };
 
         promptModal.onCancel = () => {
-            setBusyIcon($icon, false, 'fa-wand-magic-sparkles');
+            console.log('Modal cancelled');
         };
 
         promptModal.show(imagePrompt, messageId);
@@ -1406,18 +1119,11 @@ async function swarmMessageGenerateImageWithModal(e) {
     } catch (error) {
         console.error('[swarmUI-integration] Failed to generate initial prompt:', error);
         toastr.error(`Failed to generate prompt: ${error.message}`);
-        setBusyIcon($icon, false, 'fa-wand-magic-sparkles');
     }
 }
 
-// ===== INITIALIZATION =====
-
-/**
- * Initialize the extension - load settings, inject UI, bind events
- */
 jQuery(async () => {
     try {
-        // Load and inject HTML templates
         const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
         $("#extensions_settings").append(settingsHtml);
         $("#swarm_settings input, #swarm_settings textarea").on("input", onInput);
@@ -1425,43 +1131,65 @@ jQuery(async () => {
         const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
         $("#send_but").before(buttonHtml);
 
-        // Bind main control buttons
+        const queueHtml = `
+            <div id="swarm_queue_container" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid #444; border-radius: 5px; background: #222;">
+                <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                    <i class="fa-solid fa-list"></i>
+                    <span style="margin-left: 8px; font-weight: bold;">SwarmUI Generation Queue</span>
+                    <button id="swarm_clear_queue" style="margin-left: auto; padding: 4px 8px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer;">
+                        <i class="fa-solid fa-trash"></i> Clear All
+                    </button>
+                </div>
+                <div id="swarm_queue_list"></div>
+            </div>
+        `;
+        $("#send_but").before(queueHtml);
+
         $("#swarm_generate_button").on("click", () => {
             if (settings.show_prompt_modal !== false) {
                 generateImageWithModal();
             } else {
-                generateImage();
+                addToQueue('generate_image');
+                toastr.info('Image generation added to queue');
             }
         });
-        $("#swarm_generate_prompt_button").on("click", () => generatePromptOnly());
-        $("#swarm_generate_from_message_button").on("click", () => generateImageFromMessage());
 
-        // Bind message action buttons using event delegation
-        $(document).on('click', '.swarm_mes_gen_image', (e) => {
-            if (settings.show_prompt_modal !== false) { // Default to true
-                swarmMessageGenerateImageWithModal(e);
-            } else {
-                swarmMessageGenerateImage(e);
-            }
+        $("#swarm_generate_prompt_button").on("click", () => {
+            addToQueue('generate_prompt');
+            toastr.info('Prompt generation added to queue');
         });
+
+        $("#swarm_generate_from_message_button").on("click", () => {
+            addToQueue('generate_from_message');
+            toastr.info('Image generation from message added to queue');
+        });
+
+        $(document).on('click', '.swarm_mes_gen_image', swarmMessageGenerateImage);
         $(document).on('click', '.swarm_mes_gen_prompt', swarmMessageGeneratePrompt);
         $(document).on('click', '.swarm_mes_gen_from_msg', swarmMessageGenerateFromMessage);
 
-        // Inject buttons into existing messages
-        setTimeout(injectSwarmUIButtons, 100);
+        $(document).on('click', '.swarm-queue-remove', (e) => {
+            const itemId = parseFloat($(e.target).closest('.swarm-queue-remove').data('item-id'));
+            removeFromQueue(itemId);
+            toastr.info('Item removed from queue');
+        });
 
-        // Set up observer for new messages
+        $('#swarm_clear_queue').on('click', () => {
+            imageGenerationQueue.length = 0;
+            updateQueueDisplay();
+            toastr.info('Queue cleared');
+        });
+
+        setTimeout(injectSwarmUIButtons, 100);
         observeForNewMessages();
 
-        // Also inject buttons when chat changes (like switching characters)
         eventSource.on(event_types.CHAT_CHANGED, () => {
             setTimeout(injectSwarmUIButtons, 100);
         });
 
-        // Load settings last to ensure UI is ready
         await loadSettings();
 
-        console.log('[swarmUI-integration] Extension initialized successfully');
+        console.log('[swarmUI-integration] Extension initialized successfully with queue system');
     } catch (error) {
         console.error('[swarmUI-integration] Failed to initialize extension:', error);
     }

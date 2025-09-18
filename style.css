@@ -93,9 +93,6 @@
     font-style: italic;
 }
 
-
-
-
 .swarm-modal-overlay {
     position: fixed;
     top: 0;
@@ -283,6 +280,122 @@
     margin-top: 5px;
 }
 
+.swarm_mes_gen_image {
+    color: #dc3545 !important;
+}
+
+.swarm_mes_gen_prompt {
+    color: #ffc107 !important;
+}
+
+.swarm_mes_gen_from_msg {
+    color: #28a745 !important;
+}
+
+#swarm_queue_container {
+    background: var(--SmartThemeBodyColor, #222);
+    border: 1px solid var(--SmartThemeBorderColor, #444);
+    border-radius: 5px;
+    margin-top: 10px;
+    padding: 10px;
+}
+
+.swarm-queue-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    background: var(--SmartThemeBlurTintColor, #333);
+    border: 1px solid var(--SmartThemeBorderColor, #444);
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+    .swarm-queue-item:last-child {
+        margin-bottom: 0;
+    }
+
+.swarm-queue-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.swarm-queue-type {
+    font-weight: 500;
+    color: var(--SmartThemeQuoteColor, #fff);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.swarm-queue-message {
+    font-size: 12px;
+    color: var(--SmartThemeQuoteColor, #aaa);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.swarm-queue-error {
+    font-size: 11px;
+    color: #dc3545;
+    margin-top: 2px;
+}
+
+.swarm-queue-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: 10px;
+}
+
+.swarm-queue-remove {
+    background: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background-color 0.2s;
+}
+
+    .swarm-queue-remove:hover {
+        background: #c82333;
+    }
+
+.text-warning {
+    color: #ffc107 !important;
+}
+
+.text-info {
+    color: #17a2b8 !important;
+}
+
+.text-success {
+    color: #28a745 !important;
+}
+
+.text-danger {
+    color: #dc3545 !important;
+}
+
+#swarm_clear_queue {
+    background: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background-color 0.2s;
+}
+
+    #swarm_clear_queue:hover {
+        background: #c82333;
+    }
+
 @media (max-width: 768px) {
     .swarm-modal {
         width: 95%;
@@ -297,19 +410,15 @@
         width: 100%;
         justify-content: center;
     }
-}
 
-/* Red button */
-.swarm_mes_gen_image {
-    color: #dc3545 !important; /* Red */
-}
+    .swarm-queue-item {
+        flex-direction: column;
+        align-items: flex-start;
+    }
 
-/* Yellow button */
-.swarm_mes_gen_prompt {
-    color: #ffc107 !important; /* Yellow */
-}
-
-/* Green button */
-.swarm_mes_gen_from_msg {
-    color: #28a745 !important; /* Green */
+    .swarm-queue-actions {
+        margin-left: 0;
+        margin-top: 8px;
+        align-self: flex-end;
+    }
 }
