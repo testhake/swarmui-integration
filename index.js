@@ -58,22 +58,24 @@ function updateQueueStatus(itemId, status, error = null) {
 }
 
 function updateQueueDisplay() {
-    const $queueContainer = $('#swarm_queue_container');
+    const $queueWidget = $('#swarm_queue_widget');
+    const $queueCount = $('.queue-count');
+    const $queueList = $('#swarm_queue_list');
+
+    $queueCount.text(imageGenerationQueue.length);
 
     if (imageGenerationQueue.length === 0) {
-        $queueContainer.hide();
+        $queueWidget.hide();
         return;
     }
 
-    $queueContainer.show();
-
-    const $queueList = $('#swarm_queue_list');
+    $queueWidget.show();
     $queueList.empty();
 
     imageGenerationQueue.forEach((item, index) => {
         const messageText = item.messageIndex !== null ?
-            getMessageAtIndex(getContext().chat, item.messageIndex)?.substring(0, 50) + '...' :
-            'Latest message';
+            getMessageAtIndex(getContext().chat, item.messageIndex)?.substring(0, 30) + '...' :
+            'Latest';
 
         const statusIcon = {
             'pending': 'fa-clock text-warning',
@@ -82,28 +84,77 @@ function updateQueueDisplay() {
             'error': 'fa-times text-danger'
         }[item.status];
 
+        const typeIcon = {
+            'generate_image': 'fa-wand-magic-sparkles',
+            'generate_prompt': 'fa-pen-fancy',
+            'generate_from_message': 'fa-image'
+        }[item.type];
+
         const queueItemHtml = `
             <div class="swarm-queue-item" data-item-id="${item.id}">
-                <div class="swarm-queue-info">
-                    <div class="swarm-queue-type">
+                <div class="swarm-queue-item-header">
+                    <div class="swarm-queue-icons">
                         <i class="fa-solid ${statusIcon}"></i>
-                        ${item.type === 'generate_image' ? 'Generate Image' :
-                item.type === 'generate_prompt' ? 'Generate Prompt' :
-                    'Generate from Message'}
+                        <i class="fa-solid ${typeIcon}"></i>
                     </div>
-                    <div class="swarm-queue-message">${messageText}</div>
-                    ${item.error ? `<div class="swarm-queue-error">${item.error}</div>` : ''}
-                </div>
-                <div class="swarm-queue-actions">
                     ${item.status === 'pending' ?
-                `<button class="swarm-queue-remove" data-item-id="${item.id}" title="Remove from queue">
-                            <i class="fa-solid fa-trash"></i>
+                `<button class="swarm-queue-remove" data-item-id="${item.id}" title="Remove">
+                            <i class="fa-solid fa-times"></i>
                         </button>` : ''}
                 </div>
+                <div class="swarm-queue-message" title="${messageText}">${messageText}</div>
+                ${item.error ? `<div class="swarm-queue-error">${item.error}</div>` : ''}
             </div>
         `;
 
         $queueList.append(queueItemHtml);
+    });
+}
+
+function makeQueueWidgetDraggable() {
+    const $widget = $('#swarm_queue_widget');
+    const $header = $('#swarm_queue_header');
+
+    let isDragging = false;
+    let startX, startY, initialLeft, initialTop;
+
+    $header.css('cursor', 'move');
+
+    $header.on('mousedown', (e) => {
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+
+        const rect = $widget[0].getBoundingClientRect();
+        initialLeft = rect.left;
+        initialTop = rect.top;
+
+        $widget.addClass('dragging');
+        e.preventDefault();
+    });
+
+    $(document).on('mousemove', (e) => {
+        if (!isDragging) return;
+
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+
+        const newLeft = Math.max(0, Math.min(window.innerWidth - $widget.outerWidth(), initialLeft + deltaX));
+        const newTop = Math.max(0, Math.min(window.innerHeight - $widget.outerHeight(), initialTop + deltaY));
+
+        $widget.css({
+            left: newLeft + 'px',
+            top: newTop + 'px',
+            right: 'auto',
+            bottom: 'auto'
+        });
+    });
+
+    $(document).on('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            $widget.removeClass('dragging');
+        }
     });
 }
 
@@ -1132,18 +1183,25 @@ jQuery(async () => {
         $("#send_but").before(buttonHtml);
 
         const queueHtml = `
-            <div id="swarm_queue_container" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid #444; border-radius: 5px; background: #222;">
-                <div style="display: flex; align-items: center; margin-bottom: 10px;">
-                    <i class="fa-solid fa-list"></i>
-                    <span style="margin-left: 8px; font-weight: bold;">SwarmUI Generation Queue</span>
-                    <button id="swarm_clear_queue" style="margin-left: auto; padding: 4px 8px; background: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer;">
-                        <i class="fa-solid fa-trash"></i> Clear All
-                    </button>
+            <div id="swarm_queue_widget" style="display: none;">
+                <div class="swarm-queue-header" id="swarm_queue_header">
+                    <div class="swarm-queue-title">
+                        <i class="fa-solid fa-list"></i>
+                        <span class="queue-count">0</span>
+                    </div>
+                    <div class="swarm-queue-controls">
+                        <button id="swarm_toggle_queue" class="swarm-queue-btn" title="Toggle Queue">
+                            <i class="fa-solid fa-chevron-up"></i>
+                        </button>
+                        <button id="swarm_clear_queue" class="swarm-queue-btn" title="Clear Queue">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
                 </div>
-                <div id="swarm_queue_list"></div>
+                <div id="swarm_queue_list" class="swarm-queue-body"></div>
             </div>
         `;
-        $("#send_but").before(queueHtml);
+        $("body").append(queueHtml);
 
         $("#swarm_generate_button").on("click", () => {
             if (settings.show_prompt_modal !== false) {
@@ -1179,6 +1237,21 @@ jQuery(async () => {
             updateQueueDisplay();
             toastr.info('Queue cleared');
         });
+
+        $('#swarm_toggle_queue').on('click', () => {
+            const $queueBody = $('#swarm_queue_list');
+            const $toggleBtn = $('#swarm_toggle_queue i');
+
+            if ($queueBody.is(':visible')) {
+                $queueBody.hide();
+                $toggleBtn.removeClass('fa-chevron-up').addClass('fa-chevron-down');
+            } else {
+                $queueBody.show();
+                $toggleBtn.removeClass('fa-chevron-down').addClass('fa-chevron-up');
+            }
+        });
+
+        makeQueueWidgetDraggable();
 
         setTimeout(injectSwarmUIButtons, 100);
         observeForNewMessages();
