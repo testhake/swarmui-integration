@@ -73,9 +73,15 @@ function updateQueueDisplay() {
     $queueList.empty();
 
     imageGenerationQueue.forEach((item, index) => {
-        const messageText = item.messageIndex !== null ?
-            getMessageAtIndex(getContext().chat, item.messageIndex)?.substring(0, 30) + '...' :
-            'Latest';
+        const context = getContext();
+        const chat = context.chat;
+
+        let messageText = 'Unknown';
+        if (item.messageIndex !== null && item.messageIndex >= 0 && item.messageIndex < chat.length) {
+            messageText = `Msg ${item.messageIndex + 1}: ${getMessageAtIndex(chat, item.messageIndex)?.substring(0, 25)}...`;
+        } else if (item.messageIndex !== null) {
+            messageText = `Msg ${item.messageIndex + 1}: (deleted)`;
+        }
 
         const statusIcon = {
             'pending': 'fa-clock text-warning',
@@ -195,6 +201,10 @@ async function processQueueItem(item) {
     const context = getContext();
     const chat = context.chat;
 
+    if (item.messageIndex !== null && (item.messageIndex < 0 || item.messageIndex >= chat.length)) {
+        throw new Error(`Invalid message index: ${item.messageIndex}. Chat has ${chat.length} messages.`);
+    }
+
     switch (item.type) {
         case 'generate_image': {
             let imagePrompt;
@@ -207,14 +217,11 @@ async function processQueueItem(item) {
 
             const result = await generateAndSaveImage(imagePrompt);
 
-            const insertAfterIndex = item.messageIndex !== null ?
-                item.messageIndex : chat.length - 1;
-
             await addImageMessage(
                 result.savedImagePath,
                 result.imagePrompt,
                 'Generated image',
-                insertAfterIndex
+                item.messageIndex
             );
 
             playNotificationSound();
@@ -231,30 +238,28 @@ async function processQueueItem(item) {
                 sendDate: Date.now(),
             };
 
-            const insertAfterIndex = item.messageIndex !== null ?
-                item.messageIndex : chat.length - 1;
-
-            if (insertAfterIndex >= 0 && insertAfterIndex < chat.length) {
-                chat.splice(insertAfterIndex + 1, 0, testMessage);
-                await eventSource.emit(event_types.CHAT_CHANGED, -1);
-                context.clearChat();
-                await context.printMessages();
+            if (item.messageIndex !== null && item.messageIndex >= 0 && item.messageIndex < chat.length) {
+                const insertPosition = item.messageIndex + 1;
+                chat.splice(insertPosition, 0, testMessage);
             } else {
                 chat.push(testMessage);
-                await eventSource.emit(event_types.MESSAGE_RECEIVED, chat.length - 1);
-                context.addOneMessage(testMessage);
-                await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, chat.length - 1);
             }
 
+            await eventSource.emit(event_types.CHAT_CHANGED, -1);
+            context.clearChat();
+            await context.printMessages();
             await context.saveChat();
+
             playNotificationSound();
             break;
         }
 
         case 'generate_from_message': {
-            const messageText = item.messageIndex !== null ?
-                getMessageAtIndex(chat, item.messageIndex) :
-                getLastMessage(chat);
+            if (item.messageIndex === null || item.messageIndex < 0 || item.messageIndex >= chat.length) {
+                throw new Error(`Cannot generate from message: invalid index ${item.messageIndex}`);
+            }
+
+            const messageText = getMessageAtIndex(chat, item.messageIndex);
 
             if (!messageText || !messageText.trim()) {
                 throw new Error('Message is empty or not found.');
@@ -263,14 +268,11 @@ async function processQueueItem(item) {
             const imagePrompt = messageText.trim();
             const result = await generateAndSaveImage(imagePrompt);
 
-            const insertAfterIndex = item.messageIndex !== null ?
-                item.messageIndex : chat.length - 1;
-
             await addImageMessage(
                 result.savedImagePath,
                 result.imagePrompt,
                 'Generated image from message',
-                insertAfterIndex
+                item.messageIndex
             );
 
             playNotificationSound();
@@ -613,6 +615,11 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
     const context = getContext();
     const chat = context.chat;
 
+    if (insertAfterIndex === null || insertAfterIndex < 0 || insertAfterIndex >= chat.length) {
+        console.warn('[swarmUI-integration] Invalid insert index, appending to end');
+        insertAfterIndex = chat.length - 1;
+    }
+
     const imageMessage = {
         name: context.name2 || 'System',
         is_system: true,
@@ -624,28 +631,20 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
         },
     };
 
-    let imageMessageId;
+    const insertPosition = insertAfterIndex + 1;
 
-    if (insertAfterIndex !== null && insertAfterIndex >= 0 && insertAfterIndex < chat.length) {
-        chat.splice(insertAfterIndex + 1, 0, imageMessage);
-        imageMessageId = insertAfterIndex + 1;
-
-        await eventSource.emit(event_types.CHAT_CHANGED, -1);
-
-        context.clearChat();
-        await context.printMessages();
-
+    if (insertPosition < chat.length) {
+        chat.splice(insertPosition, 0, imageMessage);
     } else {
         chat.push(imageMessage);
-        imageMessageId = chat.length - 1;
-
-        await eventSource.emit(event_types.MESSAGE_RECEIVED, imageMessageId);
-        context.addOneMessage(imageMessage);
-        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, imageMessageId);
     }
 
+    await eventSource.emit(event_types.CHAT_CHANGED, -1);
+    context.clearChat();
+    await context.printMessages();
     await context.saveChat();
-    return imageMessageId;
+
+    return insertPosition;
 }
 
 async function generateImagePromptFromChat(upToMessageIndex = null) {
@@ -1204,21 +1203,28 @@ jQuery(async () => {
         $("body").append(queueHtml);
 
         $("#swarm_generate_button").on("click", () => {
+            const context = getContext();
+            const latestMessageIndex = context.chat.length - 1;
+
             if (settings.show_prompt_modal !== false) {
-                generateImageWithModal();
+                generateImageWithModal(latestMessageIndex);
             } else {
-                addToQueue('generate_image');
+                addToQueue('generate_image', latestMessageIndex);
                 toastr.info('Image generation added to queue');
             }
         });
 
         $("#swarm_generate_prompt_button").on("click", () => {
-            addToQueue('generate_prompt');
+            const context = getContext();
+            const latestMessageIndex = context.chat.length - 1;
+            addToQueue('generate_prompt', latestMessageIndex);
             toastr.info('Prompt generation added to queue');
         });
 
         $("#swarm_generate_from_message_button").on("click", () => {
-            addToQueue('generate_from_message');
+            const context = getContext();
+            const latestMessageIndex = context.chat.length - 1;
+            addToQueue('generate_from_message', latestMessageIndex);
             toastr.info('Image generation from message added to queue');
         });
 
