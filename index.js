@@ -1333,4 +1333,3 @@ jQuery(async () => {
         console.error('[swarmUI-integration] Failed to initialize extension:', error);
     }
 });
-'
