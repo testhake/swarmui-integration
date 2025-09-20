@@ -22,11 +22,50 @@ class QueueItem {
         this.id = Date.now() + Math.random();
         this.type = type;
         this.messageIndex = messageIndex;
+        this.originalMessageId = null; // Store original message ID for tracking
         this.prompt = prompt;
         this.customPrompt = customPrompt;
         this.status = 'pending';
         this.error = null;
         this.createdAt = Date.now();
+
+        // Store the original message ID if we have a valid message index
+        if (messageIndex !== null && messageIndex >= 0) {
+            const context = getContext();
+            const chat = context.chat;
+            if (messageIndex < chat.length && chat[messageIndex]) {
+                // Create a unique identifier for the message based on content and timestamp
+                this.originalMessageId = this.createMessageId(chat[messageIndex]);
+            }
+        }
+    }
+
+    createMessageId(message) {
+        // Create a unique ID based on message content, name, and timestamp
+        const content = (message.mes || '').substring(0, 50);
+        const name = message.name || '';
+        const date = message.sendDate || message.send_date || Date.now();
+        return `${name}_${date}_${content.length}_${content.substring(0, 10)}`;
+    }
+
+    // Find the current index of the original message
+    getCurrentMessageIndex() {
+        if (this.originalMessageId === null) {
+            return this.messageIndex;
+        }
+
+        const context = getContext();
+        const chat = context.chat;
+
+        // Search for the message with matching ID
+        for (let i = 0; i < chat.length; i++) {
+            if (this.createMessageId(chat[i]) === this.originalMessageId) {
+                return i;
+            }
+        }
+
+        // Fallback to original index if not found
+        return this.messageIndex;
     }
 }
 
@@ -77,10 +116,12 @@ function updateQueueDisplay() {
         const chat = context.chat;
 
         let messageText = 'Unknown';
-        if (item.messageIndex !== null && item.messageIndex >= 0 && item.messageIndex < chat.length) {
-            messageText = `Msg ${item.messageIndex + 1}: ${getMessageAtIndex(chat, item.messageIndex)?.substring(0, 25)}...`;
-        } else if (item.messageIndex !== null) {
-            messageText = `Msg ${item.messageIndex + 1}: (deleted)`;
+        const currentIndex = item.getCurrentMessageIndex();
+
+        if (currentIndex !== null && currentIndex >= 0 && currentIndex < chat.length) {
+            messageText = `Msg ${currentIndex + 1}: ${getMessageAtIndex(chat, currentIndex)?.substring(0, 25)}...`;
+        } else if (currentIndex !== null) {
+            messageText = `Msg ${currentIndex + 1}: (deleted)`;
         }
 
         const statusIcon = {
@@ -201,8 +242,11 @@ async function processQueueItem(item) {
     const context = getContext();
     const chat = context.chat;
 
-    if (item.messageIndex !== null && (item.messageIndex < 0 || item.messageIndex >= chat.length)) {
-        throw new Error(`Invalid message index: ${item.messageIndex}. Chat has ${chat.length} messages.`);
+    // Get the current message index (accounting for any shifts)
+    const currentMessageIndex = item.getCurrentMessageIndex();
+
+    if (currentMessageIndex !== null && (currentMessageIndex < 0 || currentMessageIndex >= chat.length)) {
+        throw new Error(`Invalid message index: ${currentMessageIndex}. Chat has ${chat.length} messages.`);
     }
 
     switch (item.type) {
@@ -212,7 +256,7 @@ async function processQueueItem(item) {
             if (item.customPrompt) {
                 imagePrompt = item.prompt;
             } else {
-                imagePrompt = await generateImagePromptFromChat(item.messageIndex);
+                imagePrompt = await generateImagePromptFromChat(currentMessageIndex);
             }
 
             const result = await generateAndSaveImage(imagePrompt);
@@ -221,7 +265,7 @@ async function processQueueItem(item) {
                 result.savedImagePath,
                 result.imagePrompt,
                 'Generated image',
-                item.messageIndex
+                currentMessageIndex
             );
 
             playNotificationSound();
@@ -229,7 +273,7 @@ async function processQueueItem(item) {
         }
 
         case 'generate_prompt': {
-            const imagePrompt = await generateImagePromptFromChat(item.messageIndex);
+            const imagePrompt = await generateImagePromptFromChat(currentMessageIndex);
 
             const testMessage = {
                 name: context.name2 || 'System',
@@ -238,8 +282,8 @@ async function processQueueItem(item) {
                 sendDate: Date.now(),
             };
 
-            if (item.messageIndex !== null && item.messageIndex >= 0 && item.messageIndex < chat.length) {
-                const insertPosition = item.messageIndex + 1;
+            if (currentMessageIndex !== null && currentMessageIndex >= 0 && currentMessageIndex < chat.length) {
+                const insertPosition = currentMessageIndex + 1;
                 chat.splice(insertPosition, 0, testMessage);
             } else {
                 chat.push(testMessage);
@@ -255,11 +299,11 @@ async function processQueueItem(item) {
         }
 
         case 'generate_from_message': {
-            if (item.messageIndex === null || item.messageIndex < 0 || item.messageIndex >= chat.length) {
-                throw new Error(`Cannot generate from message: invalid index ${item.messageIndex}`);
+            if (currentMessageIndex === null || currentMessageIndex < 0 || currentMessageIndex >= chat.length) {
+                throw new Error(`Cannot generate from message: invalid index ${currentMessageIndex}`);
             }
 
-            const messageText = getMessageAtIndex(chat, item.messageIndex);
+            const messageText = getMessageAtIndex(chat, currentMessageIndex);
 
             if (!messageText || !messageText.trim()) {
                 throw new Error('Message is empty or not found.');
@@ -272,7 +316,7 @@ async function processQueueItem(item) {
                 result.savedImagePath,
                 result.imagePrompt,
                 'Generated image from message',
-                item.messageIndex
+                currentMessageIndex
             );
 
             playNotificationSound();
@@ -639,9 +683,25 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
         chat.push(imageMessage);
     }
 
+    // Store current scroll position before updating
+    const $chatBlock = $('#chat');
+    const wasScrolledToBottom = $chatBlock[0].scrollTop >= $chatBlock[0].scrollHeight - $chatBlock[0].clientHeight - 50;
+
     await eventSource.emit(event_types.CHAT_CHANGED, -1);
     context.clearChat();
     await context.printMessages();
+
+    // Only auto-scroll if user was already at the bottom
+    if (!wasScrolledToBottom) {
+        // Restore scroll position to prevent jumping to bottom
+        setTimeout(() => {
+            const newScrollHeight = $chatBlock[0].scrollHeight;
+            const originalScrollTop = $chatBlock[0].scrollTop;
+            // Keep scroll position stable
+            $chatBlock[0].scrollTop = originalScrollTop;
+        }, 100);
+    }
+
     await context.saveChat();
 
     return insertPosition;
@@ -1273,3 +1333,4 @@ jQuery(async () => {
         console.error('[swarmUI-integration] Failed to initialize extension:', error);
     }
 });
+'
