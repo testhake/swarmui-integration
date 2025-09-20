@@ -683,28 +683,30 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
         chat.push(imageMessage);
     }
 
-    // Store current scroll position before updating
-    const $chatBlock = $('#chat');
-    const wasScrolledToBottom = $chatBlock[0].scrollTop >= $chatBlock[0].scrollHeight - $chatBlock[0].clientHeight - 50;
-
     await eventSource.emit(event_types.CHAT_CHANGED, -1);
     context.clearChat();
     await context.printMessages();
 
-    // Only auto-scroll if user was already at the bottom
-    if (!wasScrolledToBottom) {
-        // Restore scroll position to prevent jumping to bottom
-        setTimeout(() => {
-            const newScrollHeight = $chatBlock[0].scrollHeight;
-            const originalScrollTop = $chatBlock[0].scrollTop;
-            // Keep scroll position stable
-            $chatBlock[0].scrollTop = originalScrollTop;
-        }, 100);
-    }
+    // Scroll to the newly generated image message
+    setTimeout(() => {
+        const $chatBlock = $('#chat');
+        const $messages = $('.mes');
+
+        // Find the message at the insert position (the newly added image)
+        if (insertPosition < $messages.length) {
+            const $targetMessage = $messages.eq(insertPosition);
+            if ($targetMessage.length > 0) {
+                // Scroll to the image message
+                $targetMessage[0].scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center'
+                });
+            }
+        }
+    }, 200);
 
     await context.saveChat();
 
-    return insertPosition;
 }
 
 async function generateImagePromptFromChat(upToMessageIndex = null) {
