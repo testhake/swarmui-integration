@@ -345,6 +345,13 @@ export function getCustomModel() {
     return String(settings.custom_model);
 }
 
+export function getCustomParameters() {
+    if (!settings.custom_parameters) {
+        return '';
+    }
+    return String(settings.custom_parameters);
+}
+
 async function loadSettings() {
     if (!extension_settings[MODULE_NAME]) {
         extension_settings[MODULE_NAME] = {};
@@ -356,6 +363,7 @@ async function loadSettings() {
         { id: '#swarm_session_id', key: 'session_id', defaultValue: '' },
         { id: '#swarm_llm_prompt', key: 'llm_prompt', defaultValue: 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}' },
         { id: '#swarm_custom_model', key: 'custom_model', defaultValue: '' },
+        { id: '#swarm_custom_parameters', key: 'custom_parameters', defaultValue: '' },
         { id: '#swarm_message_count', key: 'message_count', defaultValue: 5 }
     ];
 

@@ -1,5 +1,5 @@
 // Core OpenAI handling
-import { getCustomModel } from '../index.js';
+import { getCustomModel, getCustomParameters } from '../index.js';
 import { sendOpenAIRequest, oai_settings, getChatCompletionModel, chat_completion_sources } from '../../../../openai.js';
 
 // Data extraction / cleanup helpers (same ones generateRaw uses)
@@ -46,7 +46,8 @@ async function sendCustomOpenAIRequest(messages, stopStrings, jsonSchema, signal
     }
     if (oai_settings.chat_completion_source == chat_completion_sources.CUSTOM) {
         generateData.custom_url = oai_settings.custom_url;
-        generateData.custom_include_body = oai_settings.custom_include_body;
+        //generateData.custom_include_body = oai_settings.custom_include_body;
+        generateData.custom_include_body = getCustomParameters();
         generateData.custom_exclude_body = oai_settings.custom_exclude_body;
         generateData.custom_include_headers = oai_settings.custom_include_headers;
     }
