@@ -386,7 +386,8 @@ function onInput(event) {
         settings[id] = $(event.target).prop('checked');
     } else if (id === 'message_count') {
         const value = parseInt($(event.target).val());
-        settings[id] = (value >= 0) ? value : 5;  // Changed from checking > 0
+        // Allow 0 or any positive number, default to 5 if invalid
+        settings[id] = (!isNaN(value) && value >= 0) ? value : 5;
     } else {
         settings[id] = $(event.target).val();
     }
@@ -524,10 +525,10 @@ function getVisibleMessagesUpTo(chat, count, upToIndex = chat.length) {
     const visibleMessages = [];
     const endIndex = Math.min(upToIndex, chat.length);
 
-    // If count is 0, include all messages
-    const targetCount = count === 0 ? Infinity : count;
+    // If count is 0, include all visible messages
+    const maxMessages = count === 0 ? Infinity : count;
 
-    for (let i = endIndex - 1; i >= 0 && visibleMessages.length < targetCount; i--) {
+    for (let i = endIndex - 1; i >= 0 && visibleMessages.length < maxMessages; i--) {
         const message = chat[i];
 
         if (isMessageInvisible(message)) {
@@ -542,7 +543,6 @@ function getVisibleMessagesUpTo(chat, count, upToIndex = chat.length) {
 
     return visibleMessages;
 }
-
 
 function getVisibleMessages(chat, count) {
     return getVisibleMessagesUpTo(chat, count, chat.length);
@@ -733,7 +733,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
     let imagePrompt;
 
     if (settings.use_raw) {
-        const messageCount = settings.message_count || 5;
+        const messageCount = settings.message_count ?? 5;
         const visibleMessages = upToMessageIndex !== null
             ? getVisibleMessagesUpTo(chat, messageCount, upToMessageIndex + 1)
             : getVisibleMessages(chat, messageCount);
@@ -833,7 +833,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
             throw new Error('No visible messages found to base prompt on.');
         }
 
-        const messageCount = settings.message_count || 5;
+        const messageCount = settings.message_count ?? 5;
         const visibleMessages = upToMessageIndex !== null
             ? getVisibleMessagesUpTo(chat, messageCount, upToMessageIndex + 1)
             : getVisibleMessages(chat, messageCount);
