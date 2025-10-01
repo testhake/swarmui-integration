@@ -385,7 +385,8 @@ function onInput(event) {
     if (id === 'append_prompt' || id === 'use_raw' || id === 'show_prompt_modal' || id === 'use_custom_generate_raw') {
         settings[id] = $(event.target).prop('checked');
     } else if (id === 'message_count') {
-        settings[id] = parseInt($(event.target).val()) || 5;
+        const value = parseInt($(event.target).val());
+        settings[id] = (value >= 0) ? value : 5;  // Changed from checking > 0
     } else {
         settings[id] = $(event.target).val();
     }
@@ -523,7 +524,10 @@ function getVisibleMessagesUpTo(chat, count, upToIndex = chat.length) {
     const visibleMessages = [];
     const endIndex = Math.min(upToIndex, chat.length);
 
-    for (let i = endIndex - 1; i >= 0 && visibleMessages.length < count; i--) {
+    // If count is 0, include all messages
+    const targetCount = count === 0 ? Infinity : count;
+
+    for (let i = endIndex - 1; i >= 0 && visibleMessages.length < targetCount; i--) {
         const message = chat[i];
 
         if (isMessageInvisible(message)) {
@@ -538,6 +542,7 @@ function getVisibleMessagesUpTo(chat, count, upToIndex = chat.length) {
 
     return visibleMessages;
 }
+
 
 function getVisibleMessages(chat, count) {
     return getVisibleMessagesUpTo(chat, count, chat.length);
