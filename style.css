@@ -29,7 +29,6 @@
             padding: 2px 4px;
             border-radius: 3px;
             font-size: 10px;
-            font-weight: 600;
             color: #6f42c1;
         }
 
@@ -61,7 +60,6 @@
         display: flex;
         align-items: flex-start;
         gap: 8px;
-        font-weight: 500;
         margin-bottom: 4px;
     }
 
@@ -131,7 +129,6 @@
     margin: 0;
     color: var(--SmartThemeQuoteColor, #fff);
     font-size: 18px;
-    font-weight: bold;
 }
 
 .swarm-modal-close {
@@ -195,7 +192,6 @@
     border-radius: 4px;
     cursor: pointer;
     font-size: 14px;
-    font-weight: 500;
     transition: all 0.2s;
     display: inline-flex;
     align-items: center;
@@ -327,7 +323,6 @@
     align-items: center;
     gap: 6px;
     color: var(--SmartThemeQuoteColor, #fff);
-    font-weight: bold;
     font-size: 13px;
 }
 
