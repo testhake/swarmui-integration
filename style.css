@@ -29,6 +29,8 @@
             padding: 2px 4px;
             border-radius: 3px;
             font-size: 10px;
+            font-weight: 600;
+            text-shadow: none;
             color: #6f42c1;
         }
 
@@ -60,6 +62,8 @@
         display: flex;
         align-items: flex-start;
         gap: 8px;
+        font-weight: 500;
+        text-shadow: none;
         margin-bottom: 4px;
     }
 
@@ -129,6 +133,8 @@
     margin: 0;
     color: var(--SmartThemeQuoteColor, #fff);
     font-size: 18px;
+    font-weight: bold;
+    text-shadow: none;
 }
 
 .swarm-modal-close {
@@ -171,6 +177,7 @@
     line-height: 1.4;
     resize: vertical;
     box-sizing: border-box;
+    text-shadow: none;
 }
 
     .swarm-prompt-textarea:focus {
@@ -192,6 +199,8 @@
     border-radius: 4px;
     cursor: pointer;
     font-size: 14px;
+    font-weight: 500;
+    text-shadow: none;
     transition: all 0.2s;
     display: inline-flex;
     align-items: center;
@@ -323,6 +332,8 @@
     align-items: center;
     gap: 6px;
     color: var(--SmartThemeQuoteColor, #fff);
+    font-weight: bold;
+    text-shadow: none;
     font-size: 13px;
 }
 
