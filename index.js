@@ -955,7 +955,7 @@ async function generateAndSaveImage(imagePrompt, savedParamsFromQueue = null) {
     }
 }
 
-function swarmMessageGenerateImage(e) {
+async function swarmMessageGenerateImage(e) {
     const $icon = $(e.currentTarget);
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
@@ -968,7 +968,7 @@ function swarmMessageGenerateImage(e) {
     }
 }
 
-function swarmMessageGeneratePrompt(e) {
+async function swarmMessageGeneratePrompt(e) {
     const $icon = $(e.currentTarget);
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
@@ -977,7 +977,7 @@ function swarmMessageGeneratePrompt(e) {
     toastr.info('Prompt generation added to queue');
 }
 
-function swarmMessageGenerateFromMessage(e) {
+async function swarmMessageGenerateFromMessage(e) {
     const $icon = $(e.currentTarget);
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
