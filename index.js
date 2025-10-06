@@ -81,7 +81,7 @@ async function addToQueue(type, messageIndex = null, prompt = null, customPrompt
         // Continue anyway - generateAndSaveImage will fetch them if null
     }
 
-    const queueItem = new QueueItem(type, messageIndex, prompt, customPrompt);
+    const queueItem = new QueueItem(type, messageIndex, prompt, customPrompt, savedParams);
     imageGenerationQueue.push(queueItem);
 
     updateQueueDisplay();
