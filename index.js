@@ -872,7 +872,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null) {
     return imagePrompt;
 }
 
-async function generateAndSaveImage(imagePrompt) {
+async function generateAndSaveImage(imagePrompt, savedParamsFromQueue = null) {
     const context = getContext();
 
     try {
