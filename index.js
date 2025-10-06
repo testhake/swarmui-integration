@@ -28,6 +28,7 @@ class QueueItem {
         this.status = 'pending';
         this.error = null;
         this.createdAt = Date.now();
+        this.savedParams = savedParams; // Store parameters at queue time
 
         // Store the original message ID if we have a valid message index
         if (messageIndex !== null && messageIndex >= 0) {
@@ -69,7 +70,17 @@ class QueueItem {
     }
 }
 
-function addToQueue(type, messageIndex = null, prompt = null, customPrompt = false) {
+async function addToQueue(type, messageIndex = null, prompt = null, customPrompt = false) {
+    // Fetch parameters NOW, when adding to queue
+    let savedParams = null;
+    try {
+        const sessionId = await validateAndGetSessionId();
+        savedParams = await getSavedT2IParams(sessionId);
+    } catch (error) {
+        console.warn('[swarmUI-integration] Failed to fetch parameters for queue item:', error);
+        // Continue anyway - generateAndSaveImage will fetch them if null
+    }
+
     const queueItem = new QueueItem(type, messageIndex, prompt, customPrompt);
     imageGenerationQueue.push(queueItem);
 
@@ -259,7 +270,7 @@ async function processQueueItem(item) {
                 imagePrompt = await generateImagePromptFromChat(currentMessageIndex);
             }
 
-            const result = await generateAndSaveImage(imagePrompt);
+            const result = await generateAndSaveImage(imagePrompt, item.savedParams);
 
             await addImageMessage(
                 result.savedImagePath,
@@ -310,7 +321,7 @@ async function processQueueItem(item) {
             }
 
             const imagePrompt = messageText.trim();
-            const result = await generateAndSaveImage(imagePrompt);
+            const result = await generateAndSaveImage(imagePrompt, item.savedParams);
 
             await addImageMessage(
                 result.savedImagePath,
@@ -866,7 +877,12 @@ async function generateAndSaveImage(imagePrompt) {
 
     try {
         const sessionId = await validateAndGetSessionId();
-        const savedParams = await getSavedT2IParams(sessionId);
+
+        // Use parameters from queue if available, otherwise fetch fresh ones
+        const savedParams = savedParamsFromQueue !== null
+            ? savedParamsFromQueue
+            : await getSavedT2IParams(sessionId);
+
         let rawInput = { ...savedParams };
 
         const cleanPrompt = imagePrompt;
