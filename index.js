@@ -1293,7 +1293,7 @@ jQuery(async () => {
         `;
         $("body").append(queueHtml);
 
-        $("#swarm_generate_button").on("click", () => {
+        $("#swarm_generate_button").on("click", async () => {
             const context = getContext();
             const latestMessageIndex = context.chat.length - 1;
 
@@ -1305,14 +1305,14 @@ jQuery(async () => {
             }
         });
 
-        $("#swarm_generate_prompt_button").on("click", () => {
+        $("#swarm_generate_prompt_button").on("click", async () => {
             const context = getContext();
             const latestMessageIndex = context.chat.length - 1;
             await addToQueue('generate_prompt', latestMessageIndex);
             toastr.info('Prompt generation added to queue');
         });
 
-        $("#swarm_generate_from_message_button").on("click", () => {
+        $("#swarm_generate_from_message_button").on("click", async () => {
             const context = getContext();
             const latestMessageIndex = context.chat.length - 1;
             await addToQueue('generate_from_message', latestMessageIndex);
