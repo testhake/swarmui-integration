@@ -18,7 +18,7 @@ let isProcessingQueue = false;
 let queueProcessorRunning = false;
 
 class QueueItem {
-    constructor(type, messageIndex, prompt = null, customPrompt = false) {
+    constructor(type, messageIndex, prompt = null, customPrompt = false, savedParams = null) {
         this.id = Date.now() + Math.random();
         this.type = type;
         this.messageIndex = messageIndex;
