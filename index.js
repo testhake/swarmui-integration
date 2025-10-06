@@ -963,7 +963,7 @@ function swarmMessageGenerateImage(e) {
     if (settings.show_prompt_modal !== false) {
         swarmMessageGenerateImageWithModal(e);
     } else {
-        addToQueue('generate_image', messageId);
+        await addToQueue('generate_image', messageId);
         toastr.info('Image generation added to queue');
     }
 }
@@ -973,7 +973,7 @@ function swarmMessageGeneratePrompt(e) {
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
 
-    addToQueue('generate_prompt', messageId);
+    await addToQueue('generate_prompt', messageId);
     toastr.info('Prompt generation added to queue');
 }
 
@@ -982,7 +982,7 @@ function swarmMessageGenerateFromMessage(e) {
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
 
-    addToQueue('generate_from_message', messageId);
+    await addToQueue('generate_from_message', messageId);
     toastr.info('Image generation from message added to queue');
 }
 
@@ -1219,7 +1219,7 @@ async function generateImageWithModal(upToMessageIndex = null) {
         }
 
         promptModal.onGenerate = async (finalPrompt) => {
-            addToQueue('generate_image', upToMessageIndex, finalPrompt, true);
+            await addToQueue('generate_image', upToMessageIndex, finalPrompt, true);
             toastr.success('Custom prompt image generation added to queue');
         };
 
@@ -1247,7 +1247,7 @@ async function swarmMessageGenerateImageWithModal(e) {
         }
 
         promptModal.onGenerate = async (finalPrompt) => {
-            addToQueue('generate_image', messageId, finalPrompt, true);
+            await addToQueue('generate_image', messageId, finalPrompt, true);
             toastr.success('Custom prompt image generation added to queue');
         };
 
@@ -1300,7 +1300,7 @@ jQuery(async () => {
             if (settings.show_prompt_modal !== false) {
                 generateImageWithModal(latestMessageIndex);
             } else {
-                addToQueue('generate_image', latestMessageIndex);
+                await addToQueue('generate_image', latestMessageIndex);
                 toastr.info('Image generation added to queue');
             }
         });
@@ -1308,14 +1308,14 @@ jQuery(async () => {
         $("#swarm_generate_prompt_button").on("click", () => {
             const context = getContext();
             const latestMessageIndex = context.chat.length - 1;
-            addToQueue('generate_prompt', latestMessageIndex);
+            await addToQueue('generate_prompt', latestMessageIndex);
             toastr.info('Prompt generation added to queue');
         });
 
         $("#swarm_generate_from_message_button").on("click", () => {
             const context = getContext();
             const latestMessageIndex = context.chat.length - 1;
-            addToQueue('generate_from_message', latestMessageIndex);
+            await addToQueue('generate_from_message', latestMessageIndex);
             toastr.info('Image generation from message added to queue');
         });
 
