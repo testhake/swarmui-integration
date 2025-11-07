@@ -376,7 +376,7 @@ async function loadSettings() {
         { id: '#swarm_llm_prompt', key: 'llm_prompt', defaultValue: 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}' },
         { id: '#swarm_custom_model', key: 'custom_model', defaultValue: '' },
         { id: '#swarm_custom_parameters', key: 'custom_parameters', defaultValue: '' },
-        { id: '#swarm_message_count', key: 'message_count', defaultValue: 5 }
+        { id: '#swarm_message_count', key: 'message_count', defaultValue: 5 },
         { id: '#swarm_prompt_name', key: 'prompt_name', defaultValue: '' },
     ];
 
