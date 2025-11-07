@@ -632,7 +632,7 @@ function replaceMessageTags(template, messages) {
     result = result.replace(/{description}/g, formatMessages(messages));
 
     if (settings.use_prompt) {
-        result = result.replace(/{prompt}/g, getPromptByName(settings.prompt_name));
+        result = result.replace(/{prompt}/g, getPromptByName(settings.prompt_name)?.content ?? '');
     }
 
     if (messages.length > 1) {
