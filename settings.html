@@ -40,6 +40,7 @@
                             <div><code>{message_last}</code> - Only the last message</div>
                             <div><code>{message_beforelast}</code> - Message before last</div>
                             <div><code>{description}</code> - Alias for {all_messages}</div>
+                            <div><code>{prompt}</code> - Current prompt content</div>
                         </div>
                     </div>
 
@@ -82,6 +83,22 @@
                     <span>Use Raw Generation</span>
                 </label>
                 <small class="notes">Bypass system instructions and character card for direct LLM access</small>
+            </div>
+
+            <div class="marginBot5">
+                <label class="checkbox_label" for="swarm_use_prompt">
+                    <input id="swarm_use_prompt" type="checkbox" />
+                    <span>Use Prompt</span>
+                </label>
+                <small class="notes">Use a specific chat completion preset instruction prompt as {prompt} in the LLM Prompt Template</small>
+            </div>
+
+            <div class="marginBot5">
+                <label for="swarm_prompt_name" class="checkbox_label">
+                    <span>Use Prompt (NAME) (Optional)</span>
+                </label>
+                <input id="swarm_prompt_name" class="text_pole" type="text" value="" placeholder="Leave blank to not use" />
+                <small class="notes">Name of the prompt from Chat Completion Presets to use in {prompt}</small>
             </div>
 
             <div class="marginBot5">

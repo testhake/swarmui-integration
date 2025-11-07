@@ -1,5 +1,6 @@
 ﻿import { eventSource, event_types, saveSettingsDebounced, getRequestHeaders, substituteParams } from '../../../../script.js';
 import { getContext, extension_settings } from '../../../extensions.js';
+import { oai_settings } from '../../../openai.js';
 import { generateQuietPrompt, generateRaw } from '../../../../script.js';
 import { debounce_timeout } from '../../../constants.js';
 import { saveBase64AsFile, getBase64Async, getCharaFilename } from '../../../utils.js';
@@ -376,6 +377,7 @@ async function loadSettings() {
         { id: '#swarm_custom_model', key: 'custom_model', defaultValue: '' },
         { id: '#swarm_custom_parameters', key: 'custom_parameters', defaultValue: '' },
         { id: '#swarm_message_count', key: 'message_count', defaultValue: 5 }
+        { id: '#swarm_prompt_name', key: 'prompt_name', defaultValue: '' },
     ];
 
     settingMappings.forEach(mapping => {
@@ -384,6 +386,7 @@ async function loadSettings() {
 
     $('#swarm_append_prompt').prop('checked', !!settings.append_prompt).trigger('input');
     $('#swarm_use_raw').prop('checked', !!settings.use_raw).trigger('input');
+    $('#swarm_use_prompt').prop('checked', !!settings.use_prompt).trigger('input');
     $('#swarm_use_custom_generate_raw').prop('checked', !!settings.use_custom_generate_raw).trigger('input');
     $('#swarm_show_prompt_modal').prop('checked', !!settings.show_prompt_modal).trigger('input');
 
@@ -585,6 +588,39 @@ function getMessageAtIndex(chat, index) {
     return message ? message.mes || '' : null;
 }
 
+function getPromptByName(promptName) {
+    try {
+        // Access prompts from the current oai_settings, not preset_settings_openai
+        const prompts = oai_settings?.prompts;
+
+        if (!prompts || !Array.isArray(prompts)) {
+            console.warn(`[${MODULE_NAME}] Prompts array not accessible. oai_settings.prompts:`, oai_settings?.prompts);
+            return null;
+        }
+
+        console.log(`[${MODULE_NAME}] Searching for prompt "${promptName}" in ${prompts.length} prompts`);
+
+        // Search through prompts array to find matching name
+        const prompt = prompts.find(p => p && p.name === promptName);
+
+        if (prompt) {
+            console.log(`[${MODULE_NAME}] Found prompt:`, prompt);
+            return {
+                identifier: prompt.identifier,
+                content: prompt.content || '',
+                promptData: prompt
+            };
+        }
+
+        console.warn(`[${MODULE_NAME}] Prompt "${promptName}" not found. Available prompts:`,
+            prompts.map(p => p?.name).filter(Boolean));
+        return null;
+    } catch (error) {
+        console.error(`[${MODULE_NAME}] Error accessing prompts:`, error);
+        return null;
+    }
+}
+
 function formatMessages(messages) {
     return messages.map(msg => `${msg.name}: ${msg.mes}`).join('\n\n');
 }
@@ -594,6 +630,10 @@ function replaceMessageTags(template, messages) {
 
     result = result.replace(/{all_messages}/g, formatMessages(messages));
     result = result.replace(/{description}/g, formatMessages(messages));
+
+    if (settings.use_prompt) {
+        result = result.replace(/{prompt}/g, getPromptByName(settings.prompt_name));
+    }
 
     if (messages.length > 1) {
         result = result.replace(/{previous_messages}/g, formatMessages(messages.slice(0, -1)));
