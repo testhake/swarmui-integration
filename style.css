@@ -574,4 +574,8 @@
         .swarm-queue-cancel:hover {
             opacity: 1;
         }
+
+    .text-muted {
+        color: #6c757d !important;
+    }
 }

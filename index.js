@@ -18,8 +18,7 @@ const imageGenerationQueue = [];
 let isProcessingQueue = false;
 let queueProcessorRunning = false;
 
-let currentAbortController = null;
-let cancelledQueueItemId = null;
+let activeGenerationControllers = new Map(); // Track AbortControllers for each queue item
 
 class QueueItem {
     constructor(type, messageIndex, prompt = null, customPrompt = false, savedParams = null) {
@@ -33,6 +32,7 @@ class QueueItem {
         this.error = null;
         this.createdAt = Date.now();
         this.savedParams = savedParams; // Store parameters at queue time
+        this.abortController = null;
 
         // Store the original message ID if we have a valid message index
         if (messageIndex !== null && messageIndex >= 0) {
@@ -102,6 +102,23 @@ function removeFromQueue(itemId) {
     }
 }
 
+function cancelQueueItem(itemId) {
+    const item = imageGenerationQueue.find(item => item.id === itemId);
+    if (!item) return;
+
+    // Abort the request if it has a controller
+    if (item.abortController) {
+        item.abortController.abort();
+        item.abortController = null;
+    }
+
+    updateQueueStatus(itemId, 'cancelled', 'Cancelled by user');
+
+    setTimeout(() => {
+        removeFromQueue(itemId);
+    }, 2000);
+}
+
 function updateQueueStatus(itemId, status, error = null) {
     const item = imageGenerationQueue.find(item => item.id === itemId);
     if (item) {
@@ -143,7 +160,8 @@ function updateQueueDisplay() {
             'pending': 'fa-clock text-warning',
             'processing': 'fa-hourglass-half text-info',
             'completed': 'fa-check text-success',
-            'error': 'fa-times text-danger'
+            'error': 'fa-times text-danger',
+            'cancelled': 'fa-ban text-muted' // ADD THIS LINE
         }[item.status];
 
         const typeIcon = {
@@ -152,22 +170,25 @@ function updateQueueDisplay() {
             'generate_from_message': 'fa-image'
         }[item.type];
 
+        // Show cancel button for pending OR processing items that involve LLM generation
+        const canCancel = (item.status === 'pending' || item.status === 'processing') &&
+            (item.type === 'generate_image' || item.type === 'generate_prompt');
+
         const queueItemHtml = `
-        <div class="swarm-queue-item" data-item-id="${item.id}">
-            <div class="swarm-queue-item-header">
-                <div class="swarm-queue-icons">
-                    <i class="fa-solid ${statusIcon}"></i>
-                    <i class="fa-solid ${typeIcon}"></i>
+            <div class="swarm-queue-item" data-item-id="${item.id}">
+                <div class="swarm-queue-item-header">
+                    <div class="swarm-queue-icons">
+                        <i class="fa-solid ${statusIcon}"></i>
+                        <i class="fa-solid ${typeIcon}"></i>
+                    </div>
+                    ${canCancel ?
+                `<button class="swarm-queue-cancel" data-item-id="${item.id}" title="Cancel">
+                            <i class="fa-solid fa-ban"></i>
+                        </button>` : ''}
                 </div>
-                ${item.status === 'pending' ?
-                    `<button class="swarm-queue-remove" data-item-id="${item.id}" title="Remove">
-                        <i class="fa-solid fa-times"></i>
-                    </button>` : ''}
-                ${item.status === 'processing' ?
-                    `<button class="swarm-queue-cancel" data-item-id="${item.id}" title="Cancel">
-                        <i class="fa-solid fa-ban"></i>
-                    </button>` : ''}
-        </div>
+                <div class="swarm-queue-message" title="${messageText}">${messageText}</div>
+                ${item.error ? `<div class="swarm-queue-error">${item.error}</div>` : ''}
+            </div>
         `;
 
         $queueList.append(queueItemHtml);
@@ -233,19 +254,32 @@ async function processQueue() {
 
         try {
             await processQueueItem(item);
-            updateQueueStatus(item.id, 'completed');
 
-            setTimeout(() => {
-                removeFromQueue(item.id);
-            }, 2000);
+            // Only mark as completed if not cancelled
+            if (item.status !== 'cancelled') {
+                updateQueueStatus(item.id, 'completed');
+                setTimeout(() => {
+                    removeFromQueue(item.id);
+                }, 2000);
+            }
 
         } catch (error) {
-            console.error(`[swarmUI-integration] Queue item ${item.id} failed:`, error);
-            updateQueueStatus(item.id, 'error', error.message);
-
-            setTimeout(() => {
-                removeFromQueue(item.id);
-            }, 5000);
+            // Check if it was an abort
+            if (error.name === 'AbortError' || item.status === 'cancelled') {
+                console.log(`[swarmUI-integration] Queue item ${item.id} was cancelled`);
+                // Status already set to cancelled, just continue
+            } else {
+                console.error(`[swarmUI-integration] Queue item ${item.id} failed:`, error);
+                updateQueueStatus(item.id, 'error', error.message);
+                setTimeout(() => {
+                    removeFromQueue(item.id);
+                }, 5000);
+            }
+        } finally {
+            // Clean up abort controller
+            if (item.abortController) {
+                item.abortController = null;
+            }
         }
 
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -265,6 +299,9 @@ async function processQueueItem(item) {
         throw new Error(`Invalid message index: ${currentMessageIndex}. Chat has ${chat.length} messages.`);
     }
 
+    // Create abort controller for this item
+    item.abortController = new AbortController();
+
     switch (item.type) {
         case 'generate_image': {
             let imagePrompt;
@@ -272,21 +309,13 @@ async function processQueueItem(item) {
             if (item.customPrompt) {
                 imagePrompt = item.prompt;
             } else {
-                // Check if this item was cancelled before we start
-                if (cancelledQueueItemId === item.id) {
-                    cancelledQueueItemId = null;
-                    throw new Error('Generation cancelled by user');
-                }
-
-                imagePrompt = await generateImagePromptFromChat(currentMessageIndex, item.id);
-
-                // Check again after prompt generation
-                if (cancelledQueueItemId === item.id) {
-                    cancelledQueueItemId = null;
-                    throw new Error('Generation cancelled by user');
-                }
+                imagePrompt = await generateImagePromptFromChat(currentMessageIndex, item.abortController);
             }
 
+            // Check if cancelled after prompt generation
+            if (item.status === 'cancelled') {
+                throw new Error('Generation cancelled');
+            }
 
             const result = await generateAndSaveImage(imagePrompt, item.savedParams);
 
@@ -302,7 +331,12 @@ async function processQueueItem(item) {
         }
 
         case 'generate_prompt': {
-            const imagePrompt = await generateImagePromptFromChat(currentMessageIndex);
+            const imagePrompt = await generateImagePromptFromChat(currentMessageIndex, item.abortController);
+
+            // Check if cancelled after generation
+            if (item.status === 'cancelled') {
+                throw new Error('Generation cancelled');
+            }
 
             const testMessage = {
                 name: context.name2 || 'System',
@@ -353,7 +387,6 @@ async function processQueueItem(item) {
         }
     }
 }
-
 function playNotificationSound() {
     try {
         const audio = new Audio();
@@ -790,7 +823,7 @@ async function addImageMessage(savedImagePath, imagePrompt, messagePrefix = 'Gen
 
 }
 
-async function generateImagePromptFromChat(upToMessageIndex = null, queueItemId = null) {
+async function generateImagePromptFromChat(upToMessageIndex = null, abortController = null) {
     const context = getContext();
     const chat = context.chat;
 
@@ -852,10 +885,6 @@ async function generateImagePromptFromChat(upToMessageIndex = null, queueItemId 
         }
 
         try {
-            // Create abort controller for this request
-            currentAbortController = new AbortController();
-            const requestQueueId = queueItemId;
-
             if (settings.use_custom_generate_raw === true) {
                 const result = await generateRawWithStops({
                     systemPrompt: systemPrompt,
@@ -868,7 +897,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null, queueItemId 
                         '<|endoftext|>',
                         '<END>'
                     ],
-                    abortSignal: currentAbortController.signal,
+                    abortSignal: abortController?.signal // ADD THIS LINE
                 });
                 console.log('[swarmUI-integration] generateRawWithStops result:', result);
                 imagePrompt = result;
@@ -878,22 +907,15 @@ async function generateImagePromptFromChat(upToMessageIndex = null, queueItemId 
                     systemPrompt: systemPrompt,
                     prompt: prompt,
                     prefill: '',
-                    abortSignal: currentAbortController.signal,
+                    abortSignal: abortController?.signal // ADD THIS LINE
                 });
                 console.log('[swarmUI-integration] generateRaw result:', result);
                 imagePrompt = result;
-                // Clear abort controller after successful completion
-                currentAbortController = null;
             }
         } catch (error) {
-            currentAbortController = null;
-
-            // Check if it was an abort
-            if (error.name === 'AbortError' || cancelledQueueItemId === requestQueueId) {
-                cancelledQueueItemId = null;
+            if (error.name === 'AbortError') {
                 throw new Error('Generation cancelled by user');
             }
-
             const methodName = settings.use_custom_generate_raw ? "generateRawWithStops" : "generateRaw";
             console.error(`[swarmUI-integration] ${methodName} failed:`, error);
             throw error;
@@ -930,7 +952,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null, queueItemId 
             llmPrompt = substituteParams(llmPrompt).replace('{description}', lastVisibleMessage);
         }
 
-        imagePrompt = await generateQuietPrompt(llmPrompt);
+        imagePrompt = await generateQuietPrompt(llmPrompt, false, false, abortController?.signal);
     }
 
     imagePrompt = imagePrompt
@@ -944,18 +966,6 @@ async function generateImagePromptFromChat(upToMessageIndex = null, queueItemId 
 
     return imagePrompt;
 }
-
-function cancelCurrentGeneration(itemId) {
-    cancelledQueueItemId = itemId;
-
-    if (currentAbortController) {
-        currentAbortController.abort();
-        currentAbortController = null;
-    }
-
-    toastr.info('Cancelling generation...');
-}
-
 
 async function generateAndSaveImage(imagePrompt, savedParamsFromQueue = null) {
     const context = getContext();
@@ -1251,15 +1261,27 @@ class SwarmPromptModal {
             regenerateBtn.disabled = true;
             regenerateBtn.innerHTML = '<span class="swarm-loading-spinner"></span> Regenerating...';
 
+            // Create abort controller for regeneration
+            const abortController = new AbortController();
+
+            // Store reference for potential cancellation
+            const cancelRegeneration = () => {
+                abortController.abort();
+            };
+
             try {
-                const newPrompt = await generateImagePromptFromChat(this.upToMessageIndex);
+                const newPrompt = await generateImagePromptFromChat(this.upToMessageIndex, abortController);
                 textarea.value = newPrompt;
                 this.currentPrompt = newPrompt;
                 updateCharCount();
                 toastr.success('Prompt regenerated successfully!');
             } catch (error) {
-                console.error('[swarmUI-integration] Failed to regenerate prompt:', error);
-                toastr.error(`Failed to regenerate prompt: ${error.message}`);
+                if (error.message === 'Generation cancelled by user') {
+                    toastr.info('Prompt regeneration cancelled');
+                } else {
+                    console.error('[swarmUI-integration] Failed to regenerate prompt:', error);
+                    toastr.error(`Failed to regenerate prompt: ${error.message}`);
+                }
             } finally {
                 regenerateBtn.disabled = false;
                 regenerateBtn.innerHTML = '<i class="fa-solid fa-refresh"></i> Regenerate Prompt';
@@ -1408,9 +1430,16 @@ jQuery(async () => {
         $(document).on('click', '.swarm_mes_gen_prompt', swarmMessageGeneratePrompt);
         $(document).on('click', '.swarm_mes_gen_from_msg', swarmMessageGenerateFromMessage);
 
+        $(document).on('click', '.swarm-queue-remove', (e) => {
+            const itemId = parseFloat($(e.target).closest('.swarm-queue-remove').data('item-id'));
+            removeFromQueue(itemId);
+            toastr.info('Item removed from queue');
+        });
+
         $(document).on('click', '.swarm-queue-cancel', (e) => {
             const itemId = parseFloat($(e.target).closest('.swarm-queue-cancel').data('item-id'));
-            cancelCurrentGeneration(itemId);
+            cancelQueueItem(itemId);
+            toastr.info('Generation cancelled');
         });
 
         $('#swarm_clear_queue').on('click', () => {
