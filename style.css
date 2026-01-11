@@ -558,4 +558,20 @@
         margin-top: 8px;
         align-self: flex-end;
     }
+
+    .swarm-queue-cancel {
+        background: none;
+        border: none;
+        color: #ffc107;
+        cursor: pointer;
+        padding: 2px;
+        border-radius: 2px;
+        font-size: 10px;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+    }
+
+        .swarm-queue-cancel:hover {
+            opacity: 1;
+        }
 }
