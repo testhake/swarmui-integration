@@ -417,9 +417,8 @@ function playNotificationSound() {
 }
 
 // Popup Menu Management
-function createSwarmPopupMenu(parentElement, messageIndex = null) {
-    const isMessageButton = messageIndex !== null;
-
+// Popup Menu Management
+function createSwarmPopupMenu(messageIndex = null) {
     const menuHtml = `
         <div class="swarm-popup-menu">
             <button class="swarm-popup-menu-item action-generate" data-action="generate_image" data-reversed="false">
@@ -447,9 +446,8 @@ function createSwarmPopupMenu(parentElement, messageIndex = null) {
         </div>
     `;
 
-    $(parentElement).append(menuHtml);
-
-    const $menu = $(parentElement).find('.swarm-popup-menu');
+    const $menu = $(menuHtml);
+    $('body').append($menu);
 
     // Bind click events to menu items
     $menu.find('.swarm-popup-menu-item').on('click', async function (e) {
@@ -484,33 +482,85 @@ function createSwarmPopupMenu(parentElement, messageIndex = null) {
 function closeAllSwarmPopups() {
     $('.swarm-popup-menu').removeClass('active');
     $('.swarm-popup-overlay').remove();
+    // Clean up menus after animation
+    setTimeout(() => {
+        $('.swarm-popup-menu:not(.active)').remove();
+    }, 150);
 }
 
 function toggleSwarmPopup($button, messageIndex = null) {
-    const $container = $button.closest('.swarm-popup-container');
-    let $menu = $container.find('.swarm-popup-menu');
+    // Check if clicking the same button that has an active menu
+    const existingMenu = $('.swarm-popup-menu.active');
+    const buttonId = $button.data('swarm-menu-id');
 
-    // Close any other open popups first
-    closeAllSwarmPopups();
-
-    // If menu doesn't exist, create it
-    if ($menu.length === 0) {
-        $menu = createSwarmPopupMenu($container[0], messageIndex);
-    }
-
-    // Toggle menu
-    if ($menu.hasClass('active')) {
-        $menu.removeClass('active');
+    if (existingMenu.length > 0 && existingMenu.data('button-id') === buttonId) {
+        // Close if clicking the same button
+        closeAllSwarmPopups();
         return;
     }
+
+    // Close any other open popups
+    closeAllSwarmPopups();
+
+    // Create new menu
+    const $menu = createSwarmPopupMenu(messageIndex);
+
+    // Generate unique ID for this button if it doesn't have one
+    if (!buttonId) {
+        const newId = 'swarm-btn-' + Date.now() + '-' + Math.random();
+        $button.data('swarm-menu-id', newId);
+        $menu.data('button-id', newId);
+    } else {
+        $menu.data('button-id', buttonId);
+    }
+
+    // Position the menu
+    const buttonRect = $button[0].getBoundingClientRect();
+    const menuWidth = 200; // min-width from CSS
+    const menuHeight = 180; // approximate height
+    const spacing = 8;
+
+    let top, left;
+
+    // Try to position above the button first
+    if (buttonRect.top - menuHeight - spacing > 0) {
+        // Enough space above
+        top = buttonRect.top - spacing;
+        $menu.css('transform-origin', 'bottom left');
+    } else if (window.innerHeight - buttonRect.bottom - spacing > menuHeight) {
+        // Not enough space above, try below
+        top = buttonRect.bottom + spacing;
+        $menu.css('transform-origin', 'top left');
+    } else {
+        // Not enough space above or below, position at top of viewport
+        top = spacing;
+        $menu.css('transform-origin', 'top left');
+    }
+
+    // Horizontal positioning
+    if (buttonRect.left + menuWidth < window.innerWidth) {
+        left = buttonRect.left;
+    } else {
+        left = buttonRect.right - menuWidth;
+    }
+
+    $menu.css({
+        top: top + 'px',
+        left: left + 'px'
+    });
 
     // Create overlay to close menu when clicking outside
     const $overlay = $('<div class="swarm-popup-overlay"></div>');
     $('body').append($overlay);
-    $overlay.on('click', closeAllSwarmPopups);
+    $overlay.on('click', function (e) {
+        e.stopPropagation();
+        closeAllSwarmPopups();
+    });
 
-    // Show menu
-    $menu.addClass('active');
+    // Show menu with a slight delay to ensure positioning is complete
+    requestAnimationFrame(() => {
+        $menu.addClass('active');
+    });
 }
 
 export function getCustomModel() {
@@ -1202,11 +1252,9 @@ function injectSwarmUIButtons() {
             return;
         }
 
-        // Wrap in container for popup positioning
+        // Single button, no wrapper needed since menu is appended to body
         const swarmButtonHtml = `
-            <div class="swarm-popup-container" style="display: inline-block; position: relative;">
-                <div title="SwarmUI Image Generation" class="mes_button swarm_mes_button fa-solid fa-wand-magic-sparkles" data-i18n="[title]SwarmUI Image Generation"></div>
-            </div>
+            <div title="SwarmUI Image Generation" class="mes_button swarm_mes_button fa-solid fa-wand-magic-sparkles" data-i18n="[title]SwarmUI Image Generation"></div>
         `;
 
         const $sdButton = $container.find('.sd_message_gen');
@@ -1494,10 +1542,8 @@ jQuery(async () => {
         const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
         const $sendBut = $("#send_but");
 
-        // Wrap the button in a container for popup positioning
-        const $buttonContainer = $('<div class="swarm-popup-container" style="position: relative; display: inline-block;"></div>');
-        $buttonContainer.html(buttonHtml);
-        $sendBut.before($buttonContainer);
+        // Just insert the button directly, no wrapper needed
+        $sendBut.before(buttonHtml);
 
         const queueHtml = `
             <div id="swarm_queue_widget" style="display: none;">
@@ -1522,12 +1568,14 @@ jQuery(async () => {
 
         // Bind main button to toggle popup
         $(document).on('click', '#swarm_generate_button', function (e) {
+            e.preventDefault();
             e.stopPropagation();
             toggleSwarmPopup($(this));
         });
 
         // Bind message buttons to toggle popup
         $(document).on('click', '.swarm_mes_button', function (e) {
+            e.preventDefault();
             e.stopPropagation();
             const $mes = $(this).closest('.mes');
             const messageId = parseInt($mes.attr('mesid'));
