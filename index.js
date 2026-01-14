@@ -33,6 +33,7 @@ class QueueItem {
         this.createdAt = Date.now();
         this.savedParams = savedParams; // Store parameters at queue time
         this.abortController = null;
+        this.rotateResolution = false; 
 
         // Store the original message ID if we have a valid message index
         if (messageIndex !== null && messageIndex >= 0) {
@@ -74,18 +75,30 @@ class QueueItem {
     }
 }
 
-async function addToQueue(type, messageIndex = null, prompt = null, customPrompt = false) {
+async function addToQueue(type, messageIndex = null, prompt = null, customPrompt = false, savedParams = null, rotateResolution = false) {
     // Fetch parameters NOW, when adding to queue
-    let savedParams = null;
-    try {
-        const sessionId = await validateAndGetSessionId();
-        savedParams = await getSavedT2IParams(sessionId);
-    } catch (error) {
-        console.warn('[swarmUI-integration] Failed to fetch parameters for queue item:', error);
-        // Continue anyway - generateAndSaveImage will fetch them if null
+    if (savedParams === null) {
+        try {
+            const sessionId = await validateAndGetSessionId();
+            savedParams = await getSavedT2IParams(sessionId);
+        } catch (error) {
+            console.warn('[swarmUI-integration] Failed to fetch parameters for queue item:', error);
+        }
+    }
+
+    // Apply rotation if requested
+    if (rotateResolution && savedParams) {
+        const width = savedParams.width;
+        const height = savedParams.height;
+        if (width && height) {
+            savedParams.width = height;
+            savedParams.height = width;
+            console.log(`[swarmUI-integration] Rotated resolution: ${width}x${height} -> ${height}x${width}`);
+        }
     }
 
     const queueItem = new QueueItem(type, messageIndex, prompt, customPrompt, savedParams);
+    queueItem.rotateResolution = rotateResolution; // Store rotation flag
     imageGenerationQueue.push(queueItem);
 
     updateQueueDisplay();
@@ -152,8 +165,9 @@ function updateQueueDisplay() {
 
         if (currentIndex !== null && currentIndex >= 0 && currentIndex < chat.length) {
             messageText = `Msg ${currentIndex + 1}: ${getMessageAtIndex(chat, currentIndex)?.substring(0, 25)}...`;
-        } else if (currentIndex !== null) {
-            messageText = `Msg ${currentIndex + 1}: (deleted)`;
+            if (item.rotateResolution) {
+                messageText = `🔄 ${messageText}`; // Add rotation indicator
+            }
         }
 
         const statusIcon = {
@@ -1055,13 +1069,17 @@ async function swarmMessageGenerateImage(e) {
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
 
+    // Check if shift key is pressed for rotation
+    const isRotated = e.shiftKey;
+
     if (settings.show_prompt_modal !== false) {
-        swarmMessageGenerateImageWithModal(e);
+        swarmMessageGenerateImageWithModal(e, isRotated);
     } else {
-        await addToQueue('generate_image', messageId);
-        toastr.info('Image generation added to queue');
+        await addToQueue('generate_image', messageId, null, false, null, isRotated);
+        toastr.info(`Image generation added to queue${isRotated ? ' (rotated)' : ''}`);
     }
 }
+
 
 async function swarmMessageGeneratePrompt(e) {
     const $icon = $(e.currentTarget);
@@ -1077,9 +1095,13 @@ async function swarmMessageGenerateFromMessage(e) {
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
 
-    await addToQueue('generate_from_message', messageId);
-    toastr.info('Image generation from message added to queue');
+    // Check if shift key is pressed for rotation
+    const isRotated = e.shiftKey;
+
+    await addToQueue('generate_from_message', messageId, null, false, null, isRotated);
+    toastr.info(`Image generation from message added to queue${isRotated ? ' (rotated)' : ''}`);
 }
+
 
 function injectSwarmUIButtons() {
     $('.extraMesButtons').each(function () {
@@ -1317,7 +1339,7 @@ class SwarmPromptModal {
     }
 }
 
-async function generateImageWithModal(upToMessageIndex = null) {
+async function generateImageWithModal(upToMessageIndex = null, rotateResolution = false) {
     try {
         const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
@@ -1326,8 +1348,8 @@ async function generateImageWithModal(upToMessageIndex = null) {
         }
 
         promptModal.onGenerate = async (finalPrompt) => {
-            await addToQueue('generate_image', upToMessageIndex, finalPrompt, true);
-            toastr.success('Custom prompt image generation added to queue');
+            await addToQueue('generate_image', upToMessageIndex, finalPrompt, true, null, rotateResolution);
+            toastr.success(`Custom prompt image generation added to queue${rotateResolution ? ' (rotated)' : ''}`);
         };
 
         promptModal.onCancel = () => {
@@ -1341,7 +1363,7 @@ async function generateImageWithModal(upToMessageIndex = null) {
     }
 }
 
-async function swarmMessageGenerateImageWithModal(e) {
+async function swarmMessageGenerateImageWithModal(e, rotateResolution = false) {
     const $icon = $(e.currentTarget);
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
@@ -1354,8 +1376,8 @@ async function swarmMessageGenerateImageWithModal(e) {
         }
 
         promptModal.onGenerate = async (finalPrompt) => {
-            await addToQueue('generate_image', messageId, finalPrompt, true);
-            toastr.success('Custom prompt image generation added to queue');
+            await addToQueue('generate_image', messageId, finalPrompt, true, null, rotateResolution);
+            toastr.success(`Custom prompt image generation added to queue${rotateResolution ? ' (rotated)' : ''}`);
         };
 
         promptModal.onCancel = () => {
@@ -1369,6 +1391,7 @@ async function swarmMessageGenerateImageWithModal(e) {
         toastr.error(`Failed to generate prompt: ${error.message}`);
     }
 }
+
 
 jQuery(async () => {
     try {
@@ -1400,30 +1423,63 @@ jQuery(async () => {
         `;
         $("body").append(queueHtml);
 
-        $("#swarm_generate_button").on("click", async () => {
-            const context = getContext();
-            const latestMessageIndex = context.chat.length - 1;
+        let dropdownOpen = false;
 
-            if (settings.show_prompt_modal !== false) {
-                generateImageWithModal(latestMessageIndex);
+        $("#swarm_generate_button").on("click", (e) => {
+            e.stopPropagation();
+            const $dropdown = $('#swarm_dropdown_menu');
+
+            if (dropdownOpen) {
+                $dropdown.fadeOut(150);
+                dropdownOpen = false;
             } else {
-                await addToQueue('generate_image', latestMessageIndex);
-                toastr.info('Image generation added to queue');
+                $dropdown.fadeIn(150);
+                dropdownOpen = true;
             }
         });
 
-        $("#swarm_generate_prompt_button").on("click", async () => {
-            const context = getContext();
-            const latestMessageIndex = context.chat.length - 1;
-            await addToQueue('generate_prompt', latestMessageIndex);
-            toastr.info('Prompt generation added to queue');
+        // Close dropdown when clicking outside
+        $(document).on('click', (e) => {
+            if (dropdownOpen && !$(e.target).closest('#swarm_generate_container').length) {
+                $('#swarm_dropdown_menu').fadeOut(150);
+                dropdownOpen = false;
+            }
         });
 
-        $("#swarm_generate_from_message_button").on("click", async () => {
+        // Handle dropdown item clicks
+        $(document).on('click', '.swarm-dropdown-item', async function (e) {
+            e.stopPropagation();
+            const action = $(this).data('action');
             const context = getContext();
             const latestMessageIndex = context.chat.length - 1;
-            await addToQueue('generate_from_message', latestMessageIndex);
-            toastr.info('Image generation from message added to queue');
+
+            $('#swarm_dropdown_menu').fadeOut(150);
+            dropdownOpen = false;
+
+            const isRotated = action.includes('rotated');
+
+            switch (action) {
+                case 'generate_image':
+                case 'generate_image_rotated':
+                    if (settings.show_prompt_modal !== false) {
+                        generateImageWithModal(latestMessageIndex, isRotated);
+                    } else {
+                        await addToQueue('generate_image', latestMessageIndex, null, false, null, isRotated);
+                        toastr.info(`Image generation added to queue${isRotated ? ' (rotated)' : ''}`);
+                    }
+                    break;
+
+                case 'generate_prompt':
+                    await addToQueue('generate_prompt', latestMessageIndex);
+                    toastr.info('Prompt generation added to queue');
+                    break;
+
+                case 'generate_from_message':
+                case 'generate_from_message_rotated':
+                    await addToQueue('generate_from_message', latestMessageIndex, null, false, null, isRotated);
+                    toastr.info(`Image generation from message added to queue${isRotated ? ' (rotated)' : ''}`);
+                    break;
+            }
         });
 
         $(document).on('click', '.swarm_mes_gen_image', swarmMessageGenerateImage);

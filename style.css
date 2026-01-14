@@ -578,4 +578,67 @@
     .text-muted {
         color: #6c757d !important;
     }
+
+    #swarm_generate_container {
+        position: relative;
+        display: inline-block;
+    }
+
+    .swarm-dropdown-menu {
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        margin-bottom: 5px;
+        background: var(--SmartThemeBodyColor, #222);
+        border: 1px solid var(--SmartThemeBorderColor, #444);
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        min-width: 240px;
+        z-index: 1000;
+        padding: 4px 0;
+    }
+
+    .swarm-dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 15px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        color: var(--SmartThemeQuoteColor, #fff);
+        font-size: 13px;
+    }
+
+        .swarm-dropdown-item:hover {
+            background: var(--SmartThemeBlurTintColor, #333);
+        }
+
+        .swarm-dropdown-item i {
+            width: 16px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+            .swarm-dropdown-item i:first-child {
+                color: #dc3545;
+            }
+
+        .swarm-dropdown-item[data-action="generate_prompt"] i {
+            color: #ffc107;
+        }
+
+        .swarm-dropdown-item[data-action="generate_from_message"] i:first-child,
+        .swarm-dropdown-item[data-action="generate_from_message_rotated"] i:first-child {
+            color: #28a745;
+        }
+
+        .swarm-dropdown-item[data-action*="rotated"] i.fa-arrows-rotate {
+            color: #17a2b8;
+        }
+
+    .swarm-dropdown-divider {
+        height: 1px;
+        background: var(--SmartThemeBorderColor, #444);
+        margin: 4px 0;
+    }
 }
