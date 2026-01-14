@@ -419,6 +419,8 @@ function playNotificationSound() {
 // Popup Menu Management
 // Popup Menu Management
 function createSwarmPopupMenu(messageIndex = null) {
+    console.log('[swarmUI-integration] createSwarmPopupMenu called with messageIndex:', messageIndex);
+
     const menuHtml = `
         <div class="swarm-popup-menu">
             <button class="swarm-popup-menu-item action-generate" data-action="generate_image" data-reversed="false">
@@ -447,10 +449,13 @@ function createSwarmPopupMenu(messageIndex = null) {
     `;
 
     const $menu = $(menuHtml);
+    console.log('[swarmUI-integration] Menu HTML created, appending to body');
     $('body').append($menu);
+    console.log('[swarmUI-integration] Menu appended, found in DOM:', $('.swarm-popup-menu').length);
 
     // Bind click events to menu items
     $menu.find('.swarm-popup-menu-item').on('click', async function (e) {
+        console.log('[swarmUI-integration] Menu item clicked');
         e.stopPropagation();
         const action = $(this).data('action');
         const isReversed = $(this).data('reversed') === true;
@@ -480,6 +485,7 @@ function createSwarmPopupMenu(messageIndex = null) {
 }
 
 function closeAllSwarmPopups() {
+    console.log('[swarmUI-integration] Closing all popups');
     $('.swarm-popup-menu').removeClass('active');
     $('.swarm-popup-overlay').remove();
     // Clean up menus after animation
@@ -489,12 +495,17 @@ function closeAllSwarmPopups() {
 }
 
 function toggleSwarmPopup($button, messageIndex = null) {
+    console.log('[swarmUI-integration] toggleSwarmPopup called', { messageIndex, buttonExists: $button.length > 0 });
+
     // Check if clicking the same button that has an active menu
     const existingMenu = $('.swarm-popup-menu.active');
     const buttonId = $button.data('swarm-menu-id');
 
+    console.log('[swarmUI-integration] Existing menu:', existingMenu.length, 'Button ID:', buttonId);
+
     if (existingMenu.length > 0 && existingMenu.data('button-id') === buttonId) {
         // Close if clicking the same button
+        console.log('[swarmUI-integration] Closing same menu');
         closeAllSwarmPopups();
         return;
     }
@@ -503,7 +514,9 @@ function toggleSwarmPopup($button, messageIndex = null) {
     closeAllSwarmPopups();
 
     // Create new menu
+    console.log('[swarmUI-integration] Creating new menu');
     const $menu = createSwarmPopupMenu(messageIndex);
+    console.log('[swarmUI-integration] Menu created:', $menu.length > 0);
 
     // Generate unique ID for this button if it doesn't have one
     if (!buttonId) {
@@ -516,8 +529,10 @@ function toggleSwarmPopup($button, messageIndex = null) {
 
     // Position the menu
     const buttonRect = $button[0].getBoundingClientRect();
-    const menuWidth = 200; // min-width from CSS
-    const menuHeight = 180; // approximate height
+    console.log('[swarmUI-integration] Button rect:', buttonRect);
+
+    const menuWidth = 200;
+    const menuHeight = 200; // increased estimate
     const spacing = 8;
 
     let top, left;
@@ -525,16 +540,19 @@ function toggleSwarmPopup($button, messageIndex = null) {
     // Try to position above the button first
     if (buttonRect.top - menuHeight - spacing > 0) {
         // Enough space above
-        top = buttonRect.top - spacing;
+        top = buttonRect.top - menuHeight - spacing;
         $menu.css('transform-origin', 'bottom left');
+        console.log('[swarmUI-integration] Positioning above');
     } else if (window.innerHeight - buttonRect.bottom - spacing > menuHeight) {
         // Not enough space above, try below
         top = buttonRect.bottom + spacing;
         $menu.css('transform-origin', 'top left');
+        console.log('[swarmUI-integration] Positioning below');
     } else {
         // Not enough space above or below, position at top of viewport
         top = spacing;
         $menu.css('transform-origin', 'top left');
+        console.log('[swarmUI-integration] Positioning at top');
     }
 
     // Horizontal positioning
@@ -543,6 +561,8 @@ function toggleSwarmPopup($button, messageIndex = null) {
     } else {
         left = buttonRect.right - menuWidth;
     }
+
+    console.log('[swarmUI-integration] Final position:', { top, left });
 
     $menu.css({
         top: top + 'px',
@@ -553,13 +573,16 @@ function toggleSwarmPopup($button, messageIndex = null) {
     const $overlay = $('<div class="swarm-popup-overlay"></div>');
     $('body').append($overlay);
     $overlay.on('click', function (e) {
+        console.log('[swarmUI-integration] Overlay clicked');
         e.stopPropagation();
         closeAllSwarmPopups();
     });
 
     // Show menu with a slight delay to ensure positioning is complete
+    console.log('[swarmUI-integration] Activating menu');
     requestAnimationFrame(() => {
         $menu.addClass('active');
+        console.log('[swarmUI-integration] Menu should now be visible, has active class:', $menu.hasClass('active'));
     });
 }
 
