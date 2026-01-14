@@ -598,10 +598,15 @@
         z-index: 10000;
         min-width: 280px;
         overflow: hidden;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
     }
 
         .swarm_dropdown_menu.show {
             display: block;
+            opacity: 1;
+            pointer-events: auto;
         }
 
     .swarm_dropdown_item {
@@ -614,6 +619,7 @@
         color: var(--SmartThemeQuoteColor, #fff);
         font-size: 13px;
         border-bottom: 1px solid var(--SmartThemeBorderColor, #333);
+        white-space: nowrap;
     }
 
         .swarm_dropdown_item:last-child {
@@ -665,10 +671,15 @@
         z-index: 10000;
         min-width: 280px;
         overflow: hidden;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
     }
 
         .swarm_mes_dropdown_menu.show {
             display: block;
+            opacity: 1;
+            pointer-events: auto;
         }
 
     .swarm_mes_dropdown_item {
@@ -681,6 +692,7 @@
         color: var(--SmartThemeQuoteColor, #fff);
         font-size: 13px;
         border-bottom: 1px solid var(--SmartThemeBorderColor, #333);
+        white-space: nowrap;
     }
 
         .swarm_mes_dropdown_item:last-child {

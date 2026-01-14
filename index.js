@@ -1460,69 +1460,43 @@ jQuery(async () => {
         `;
         $("body").append(queueHtml);
 
-        // Close all dropdowns helper
-        function closeAllDropdowns() {
-            $('.swarm_dropdown_menu, .swarm_mes_dropdown_menu').removeClass('show');
-        }
-
         // Main button dropdown toggle
         $(document).on('click', '#swarm_main_button', function (e) {
-            e.preventDefault();
             e.stopPropagation();
-
-            const $dropdown = $('#swarm_main_dropdown');
-            const isCurrentlyShown = $dropdown.hasClass('show');
-
-            // Close all dropdowns first
-            closeAllDropdowns();
-
-            // Toggle this one if it wasn't shown
-            if (!isCurrentlyShown) {
-                $dropdown.addClass('show');
-            }
+            $('#swarm_main_dropdown').toggleClass('show');
         });
 
         // Main dropdown item click
         $(document).on('click', '.swarm_dropdown_item', async function (e) {
-            e.preventDefault();
             e.stopPropagation();
-
             const action = $(this).data('action');
             const context = getContext();
             const latestMessageIndex = context.chat.length - 1;
 
-            closeAllDropdowns();
+            $('#swarm_main_dropdown').removeClass('show');
 
             await handleSwarmAction(action, latestMessageIndex, true);
         });
 
         // Message button dropdown toggle
         $(document).on('click', '.swarm_mes_main', function (e) {
-            e.preventDefault();
             e.stopPropagation();
-
             const $dropdown = $(this).siblings('.swarm_mes_dropdown_menu');
-            const isCurrentlyShown = $dropdown.hasClass('show');
 
-            // Close all dropdowns first
-            closeAllDropdowns();
+            // Close all other dropdowns
+            $('.swarm_mes_dropdown_menu').not($dropdown).removeClass('show');
 
-            // Toggle this one if it wasn't shown
-            if (!isCurrentlyShown) {
-                $dropdown.addClass('show');
-            }
+            $dropdown.toggleClass('show');
         });
 
         // Message dropdown item click
         $(document).on('click', '.swarm_mes_dropdown_item', async function (e) {
-            e.preventDefault();
             e.stopPropagation();
-
             const action = $(this).data('action');
             const $mes = $(this).closest('.mes');
             const messageId = parseInt($mes.attr('mesid'));
 
-            closeAllDropdowns();
+            $(this).closest('.swarm_mes_dropdown_menu').removeClass('show');
 
             await handleSwarmAction(action, messageId, true);
         });
@@ -1530,13 +1504,8 @@ jQuery(async () => {
         // Close dropdowns when clicking outside
         $(document).on('click', function (e) {
             if (!$(e.target).closest('.swarm_dropdown_container, .swarm_mes_dropdown_container').length) {
-                closeAllDropdowns();
+                $('.swarm_dropdown_menu, .swarm_mes_dropdown_menu').removeClass('show');
             }
-        });
-
-        // Prevent dropdown menu clicks from bubbling
-        $(document).on('click', '.swarm_dropdown_menu, .swarm_mes_dropdown_menu', function (e) {
-            e.stopPropagation();
         });
 
         $(document).on('click', '.swarm-queue-cancel', (e) => {
