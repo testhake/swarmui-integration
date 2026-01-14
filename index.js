@@ -1487,64 +1487,96 @@ jQuery(async () => {
         `;
         $("body").append(queueHtml);
 
+        // Close all menus helper
+        function closeAllSwarmMenus() {
+            $('.swarm-dropdown-menu').removeClass('active');
+        }
+
         // Main menu button handler
         $(document).on('click', '#swarm_menu_button', function (e) {
+            e.preventDefault();
             e.stopPropagation();
+
             const $button = $(this);
             let $menu = $button.find('.swarm-dropdown-menu');
+            const isCurrentlyActive = $menu.hasClass('active');
 
-            // Close any other open menus
-            $('.swarm-dropdown-menu').not($menu).removeClass('active');
+            // Close all menus first
+            closeAllSwarmMenus();
 
-            if ($menu.length === 0) {
-                $menu = createSwarmMenu(false);
-                $button.append($menu);
+            // If this menu wasn't active, open it
+            if (!isCurrentlyActive) {
+                if ($menu.length === 0) {
+                    $menu = createSwarmMenu(false);
+                    $button.append($menu);
+                }
+                $menu.addClass('active');
             }
-
-            $menu.toggleClass('active');
         });
 
         // Per-message menu button handler
         $(document).on('click', '.swarm_mes_menu_button', function (e) {
+            e.preventDefault();
             e.stopPropagation();
+
             const $button = $(this);
             const $mes = $button.closest('.mes');
             const messageId = parseInt($mes.attr('mesid'));
 
             let $menu = $button.find('.swarm-dropdown-menu');
+            const isCurrentlyActive = $menu.hasClass('active');
 
-            // Close any other open menus
-            $('.swarm-dropdown-menu').not($menu).removeClass('active');
+            // Close all menus first
+            closeAllSwarmMenus();
 
-            if ($menu.length === 0) {
-                $menu = createSwarmMenu(true);
-                $button.append($menu);
+            // If this menu wasn't active, open it
+            if (!isCurrentlyActive) {
+                if ($menu.length === 0) {
+                    $menu = createSwarmMenu(true);
+                    $button.append($menu);
+                }
+
+                // Store message ID for this menu
+                $menu.data('message-id', messageId);
+                $menu.addClass('active');
             }
-
-            $menu.toggleClass('active');
-
-            // Store message ID for this menu
-            $menu.data('message-id', messageId);
         });
 
         // Menu item click handler
         $(document).on('click', '.swarm-menu-item', function (e) {
+            e.preventDefault();
             e.stopPropagation();
+
             const $item = $(this);
             const action = $item.data('action');
             const $menu = $item.closest('.swarm-dropdown-menu');
             const messageId = $menu.data('message-id');
 
-            handleMenuAction(action, messageId);
+            // Close menu immediately
+            closeAllSwarmMenus();
 
-            // Close menu
-            $menu.removeClass('active');
+            // Handle action after closing
+            handleMenuAction(action, messageId);
         });
 
         // Close menus when clicking outside
         $(document).on('click', function (e) {
-            if (!$(e.target).closest('.swarm-menu-container, .swarm_mes_menu_button').length) {
-                $('.swarm-dropdown-menu').removeClass('active');
+            if (!$(e.target).closest('.swarm-menu-container, .swarm_mes_menu_button, .swarm-dropdown-menu').length) {
+                closeAllSwarmMenus();
+            }
+        });
+
+        // Close menus on escape key
+        $(document).on('keydown', function (e) {
+            if (e.key === 'Escape') {
+                closeAllSwarmMenus();
+            }
+        });
+
+        // Prevent menu from closing when clicking inside it (but not on items)
+        $(document).on('click', '.swarm-dropdown-menu', function (e) {
+            if (!$(e.target).closest('.swarm-menu-item').length) {
+                e.stopPropagation();
             }
         });
 

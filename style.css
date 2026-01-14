@@ -579,89 +579,118 @@
         color: #6c757d !important;
     }
 
-    /* SwarmUI Menu Styles */
+    /* SwarmUI Menu Styles - Highly specific to avoid inheritance */
     .swarm-menu-container {
         position: relative;
+        display: inline-block;
+    }
+
+    .swarm_mes_menu_button {
+        position: relative;
+        display: inline-block;
     }
 
     .swarm-dropdown-menu {
         position: absolute;
-        bottom: 100%;
-        left: 0;
-        margin-bottom: 5px;
-        background: var(--SmartThemeBodyColor, #222);
-        border: 1px solid var(--SmartThemeBorderColor, #444);
-        border-radius: 6px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-        z-index: 10000;
-        min-width: 220px;
-        padding: 4px;
-        display: none;
+        bottom: calc(100% + 2px);
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--SmartThemeBodyColor, #1a1a1a) !important;
+        border: 1px solid var(--SmartThemeBorderColor, #444) !important;
+        border-radius: 4px !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6) !important;
+        z-index: 10001 !important;
+        min-width: 200px !important;
+        width: max-content !important;
+        max-width: 280px !important;
+        padding: 3px !important;
+        display: none !important;
+        margin: 0 !important;
+        font-size: 11px !important;
+        line-height: 1.2 !important;
+        text-shadow: none !important;
+        font-family: inherit !important;
     }
 
         .swarm-dropdown-menu.active {
-            display: block;
+            display: block !important;
         }
 
+    /* For per-message menus, position below the button */
+    .swarm_mes_menu_button .swarm-dropdown-menu {
+        bottom: auto !important;
+        top: calc(100% + 2px) !important;
+    }
+
     .swarm-menu-item {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 8px 12px;
-        cursor: pointer;
-        border-radius: 4px;
-        transition: background-color 0.2s;
-        font-size: 13px;
-        color: var(--SmartThemeQuoteColor, #fff);
-        text-shadow: none;
-        white-space: nowrap;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        padding: 6px 10px !important;
+        cursor: pointer !important;
+        border-radius: 3px !important;
+        transition: background-color 0.15s ease !important;
+        font-size: 11px !important;
+        line-height: 1.2 !important;
+        color: var(--SmartThemeQuoteColor, #e0e0e0) !important;
+        text-shadow: none !important;
+        white-space: nowrap !important;
+        margin: 1px 0 !important;
+        font-weight: 400 !important;
+        text-decoration: none !important;
+        font-family: inherit !important;
+        border-left: 2px solid transparent !important;
     }
 
         .swarm-menu-item:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.08) !important;
         }
 
         .swarm-menu-item i {
-            width: 16px;
-            text-align: center;
+            width: 14px !important;
+            height: 14px !important;
+            text-align: center !important;
+            font-size: 11px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            flex-shrink: 0 !important;
+        }
+
+        .swarm-menu-item span {
+            font-size: 11px !important;
+            line-height: 1.2 !important;
+            text-shadow: none !important;
+            font-weight: 400 !important;
+            color: inherit !important;
         }
 
         /* Color coding for menu items */
         .swarm-menu-item.generate-image {
-            border-left: 3px solid #dc3545;
+            border-left-color: #dc3545 !important;
         }
 
         .swarm-menu-item.generate-image-reversed {
-            border-left: 3px solid #fd7e14;
+            border-left-color: #fd7e14 !important;
         }
 
         .swarm-menu-item.generate-from-message {
-            border-left: 3px solid #28a745;
+            border-left-color: #28a745 !important;
         }
 
         .swarm-menu-item.generate-from-message-reversed {
-            border-left: 3px solid #20c997;
+            border-left-color: #20c997 !important;
         }
 
         .swarm-menu-item.generate-prompt {
-            border-left: 3px solid #ffc107;
+            border-left-color: #ffc107 !important;
         }
 
     .swarm-menu-divider {
-        height: 1px;
-        background: var(--SmartThemeBorderColor, #444);
-        margin: 4px 0;
+        height: 1px !important;
+        background: var(--SmartThemeBorderColor, #444) !important;
+        margin: 3px 0 !important;
+        padding: 0 !important;
+        border: none !important;
     }
-
-    /* Per-message menu button */
-    .swarm_mes_menu_button {
-        position: relative;
-    }
-
-        .swarm_mes_menu_button .swarm-dropdown-menu {
-            bottom: auto;
-            top: 100%;
-            margin-bottom: 0;
-            margin-top: 5px;
-        }
 }
