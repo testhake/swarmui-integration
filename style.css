@@ -578,4 +578,38 @@
     .text-muted {
         color: #6c757d !important;
     }
+
+    /* Button colors matching the message buttons */
+    #swarm_generate_button i {
+        color: #dc3545;
+    }
+
+    #swarm_generate_from_message_button i {
+        color: #28a745;
+    }
+
+    #swarm_generate_prompt_button i {
+        color: #ffc107;
+    }
+
+    /* Shift-active state for dimension swap buttons */
+    .shift-active i,
+    #swarm_generate_button.shift-active i,
+    #swarm_generate_from_message_button.shift-active i,
+    .swarm_mes_gen_image.shift-active,
+    .swarm_mes_gen_from_msg.shift-active {
+        color: #ff69b4 !important;
+        text-shadow: 0 0 8px rgba(255, 105, 180, 0.6);
+        animation: pulse-glow 1s ease-in-out infinite;
+    }
+
+    @keyframes pulse-glow {
+        0%, 100% {
+            text-shadow: 0 0 8px rgba(255, 105, 180, 0.6);
+        }
+
+        50% {
+            text-shadow: 0 0 12px rgba(255, 105, 180, 0.9);
+        }
+    }
 }

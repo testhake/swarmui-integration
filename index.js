@@ -20,6 +20,8 @@ let queueProcessorRunning = false;
 
 let activeGenerationControllers = new Map(); // Track AbortControllers for each queue item
 
+let isShiftPressed = false;
+
 class QueueItem {
     constructor(type, messageIndex, prompt = null, customPrompt = false, savedParams = null) {
         this.id = Date.now() + Math.random();
@@ -74,18 +76,16 @@ class QueueItem {
     }
 }
 
-async function addToQueue(type, messageIndex = null, prompt = null, customPrompt = false) {
-    // Fetch parameters NOW, when adding to queue
+async function addToQueue(type, messageIndex = null, prompt = null, customPrompt = false, swapDimensions = false) {
     let savedParams = null;
     try {
         const sessionId = await validateAndGetSessionId();
         savedParams = await getSavedT2IParams(sessionId);
     } catch (error) {
         console.warn('[swarmUI-integration] Failed to fetch parameters for queue item:', error);
-        // Continue anyway - generateAndSaveImage will fetch them if null
     }
 
-    const queueItem = new QueueItem(type, messageIndex, prompt, customPrompt, savedParams);
+    const queueItem = new QueueItem(type, messageIndex, prompt, customPrompt, savedParams, swapDimensions);
     imageGenerationQueue.push(queueItem);
 
     updateQueueDisplay();
@@ -292,14 +292,12 @@ async function processQueueItem(item) {
     const context = getContext();
     const chat = context.chat;
 
-    // Get the current message index (accounting for any shifts)
     const currentMessageIndex = item.getCurrentMessageIndex();
 
     if (currentMessageIndex !== null && (currentMessageIndex < 0 || currentMessageIndex >= chat.length)) {
         throw new Error(`Invalid message index: ${currentMessageIndex}. Chat has ${chat.length} messages.`);
     }
 
-    // Create abort controller for this item
     item.abortController = new AbortController();
 
     switch (item.type) {
@@ -312,12 +310,11 @@ async function processQueueItem(item) {
                 imagePrompt = await generateImagePromptFromChat(currentMessageIndex, item.abortController);
             }
 
-            // Check if cancelled after prompt generation
             if (item.status === 'cancelled') {
                 throw new Error('Generation cancelled');
             }
 
-            const result = await generateAndSaveImage(imagePrompt, item.savedParams);
+            const result = await generateAndSaveImage(imagePrompt, item.savedParams, item.swapDimensions);
 
             await addImageMessage(
                 result.savedImagePath,
@@ -333,7 +330,6 @@ async function processQueueItem(item) {
         case 'generate_prompt': {
             const imagePrompt = await generateImagePromptFromChat(currentMessageIndex, item.abortController);
 
-            // Check if cancelled after generation
             if (item.status === 'cancelled') {
                 throw new Error('Generation cancelled');
             }
@@ -373,7 +369,7 @@ async function processQueueItem(item) {
             }
 
             const imagePrompt = messageText.trim();
-            const result = await generateAndSaveImage(imagePrompt, item.savedParams);
+            const result = await generateAndSaveImage(imagePrompt, item.savedParams, item.swapDimensions);
 
             await addImageMessage(
                 result.savedImagePath,
@@ -967,7 +963,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null, abortControl
     return imagePrompt;
 }
 
-async function generateAndSaveImage(imagePrompt, savedParamsFromQueue = null) {
+async function generateAndSaveImage(imagePrompt, savedParamsFromQueue = null, shouldSwapDimensions = false) {
     const context = getContext();
 
     try {
@@ -979,6 +975,14 @@ async function generateAndSaveImage(imagePrompt, savedParamsFromQueue = null) {
             : await getSavedT2IParams(sessionId);
 
         let rawInput = { ...savedParams };
+
+        // Swap width and height if shift was pressed
+        if (shouldSwapDimensions && rawInput.width && rawInput.height) {
+            const temp = rawInput.width;
+            rawInput.width = rawInput.height;
+            rawInput.height = temp;
+            console.log(`[swarmUI-integration] Swapped dimensions: ${rawInput.width}x${rawInput.height}`);
+        }
 
         const cleanPrompt = imagePrompt;
         let finalPrompt = cleanPrompt;
@@ -1058,8 +1062,8 @@ async function swarmMessageGenerateImage(e) {
     if (settings.show_prompt_modal !== false) {
         swarmMessageGenerateImageWithModal(e);
     } else {
-        await addToQueue('generate_image', messageId);
-        toastr.info('Image generation added to queue');
+        await addToQueue('generate_image', messageId, null, false, isShiftPressed);
+        toastr.info('Image generation added to queue' + (isShiftPressed ? ' (dimensions swapped)' : ''));
     }
 }
 
@@ -1077,8 +1081,8 @@ async function swarmMessageGenerateFromMessage(e) {
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
 
-    await addToQueue('generate_from_message', messageId);
-    toastr.info('Image generation from message added to queue');
+    await addToQueue('generate_from_message', messageId, null, false, isShiftPressed);
+    toastr.info('Image generation from message added to queue' + (isShiftPressed ? ' (dimensions swapped)' : ''));
 }
 
 function injectSwarmUIButtons() {
@@ -1091,8 +1095,8 @@ function injectSwarmUIButtons() {
 
         const swarmButtons = `
             <div title="SwarmUI: Generate Image (LLM Prompt)" class="mes_button swarm_mes_button swarm_mes_gen_image fa-solid fa-wand-magic-sparkles" data-i18n="[title]SwarmUI: Generate Image (LLM Prompt)"></div>
-            <div title="SwarmUI: Generate Prompt Only" class="mes_button swarm_mes_button swarm_mes_gen_prompt fa-solid fa-pen-fancy" data-i18n="[title]SwarmUI: Generate Prompt Only"></div>
             <div title="SwarmUI: Generate Image from Message" class="mes_button swarm_mes_button swarm_mes_gen_from_msg fa-solid fa-image" data-i18n="[title]SwarmUI: Generate Image from Message"></div>
+            <div title="SwarmUI: Generate Prompt Only" class="mes_button swarm_mes_button swarm_mes_gen_prompt fa-solid fa-pen-fancy" data-i18n="[title]SwarmUI: Generate Prompt Only"></div>
         `;
 
         const $sdButton = $container.find('.sd_message_gen');
@@ -1318,6 +1322,8 @@ class SwarmPromptModal {
 }
 
 async function generateImageWithModal(upToMessageIndex = null) {
+    const capturedShiftState = isShiftPressed; // Capture shift state when button is clicked
+
     try {
         const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
@@ -1326,8 +1332,8 @@ async function generateImageWithModal(upToMessageIndex = null) {
         }
 
         promptModal.onGenerate = async (finalPrompt) => {
-            await addToQueue('generate_image', upToMessageIndex, finalPrompt, true);
-            toastr.success('Custom prompt image generation added to queue');
+            await addToQueue('generate_image', upToMessageIndex, finalPrompt, true, capturedShiftState);
+            toastr.success('Custom prompt image generation added to queue' + (capturedShiftState ? ' (dimensions swapped)' : ''));
         };
 
         promptModal.onCancel = () => {
@@ -1345,6 +1351,7 @@ async function swarmMessageGenerateImageWithModal(e) {
     const $icon = $(e.currentTarget);
     const $mes = $icon.closest('.mes');
     const messageId = parseInt($mes.attr('mesid'));
+    const capturedShiftState = isShiftPressed; // Capture shift state when button is clicked
 
     try {
         const imagePrompt = await generateImagePromptFromChat(messageId);
@@ -1354,8 +1361,8 @@ async function swarmMessageGenerateImageWithModal(e) {
         }
 
         promptModal.onGenerate = async (finalPrompt) => {
-            await addToQueue('generate_image', messageId, finalPrompt, true);
-            toastr.success('Custom prompt image generation added to queue');
+            await addToQueue('generate_image', messageId, finalPrompt, true, capturedShiftState);
+            toastr.success('Custom prompt image generation added to queue' + (capturedShiftState ? ' (dimensions swapped)' : ''));
         };
 
         promptModal.onCancel = () => {
@@ -1367,6 +1374,21 @@ async function swarmMessageGenerateImageWithModal(e) {
     } catch (error) {
         console.error('[swarmUI-integration] Failed to generate initial prompt:', error);
         toastr.error(`Failed to generate prompt: ${error.message}`);
+    }
+}
+
+function updateButtonStates() {
+    // Update main buttons
+    if (isShiftPressed) {
+        $('#swarm_generate_button').addClass('shift-active');
+        $('#swarm_generate_from_message_button').addClass('shift-active');
+        $('.swarm_mes_gen_image').addClass('shift-active');
+        $('.swarm_mes_gen_from_msg').addClass('shift-active');
+    } else {
+        $('#swarm_generate_button').removeClass('shift-active');
+        $('#swarm_generate_from_message_button').removeClass('shift-active');
+        $('.swarm_mes_gen_image').removeClass('shift-active');
+        $('.swarm_mes_gen_from_msg').removeClass('shift-active');
     }
 }
 
@@ -1407,8 +1429,8 @@ jQuery(async () => {
             if (settings.show_prompt_modal !== false) {
                 generateImageWithModal(latestMessageIndex);
             } else {
-                await addToQueue('generate_image', latestMessageIndex);
-                toastr.info('Image generation added to queue');
+                await addToQueue('generate_image', latestMessageIndex, null, false, isShiftPressed);
+                toastr.info('Image generation added to queue' + (isShiftPressed ? ' (dimensions swapped)' : ''));
             }
         });
 
@@ -1422,8 +1444,8 @@ jQuery(async () => {
         $("#swarm_generate_from_message_button").on("click", async () => {
             const context = getContext();
             const latestMessageIndex = context.chat.length - 1;
-            await addToQueue('generate_from_message', latestMessageIndex);
-            toastr.info('Image generation from message added to queue');
+            await addToQueue('generate_from_message', latestMessageIndex, null, false, isShiftPressed);
+            toastr.info('Image generation from message added to queue' + (isShiftPressed ? ' (dimensions swapped)' : ''));
         });
 
         $(document).on('click', '.swarm_mes_gen_image', swarmMessageGenerateImage);
@@ -1458,6 +1480,28 @@ jQuery(async () => {
             } else {
                 $queueBody.show();
                 $toggleBtn.removeClass('fa-chevron-down').addClass('fa-chevron-up');
+            }
+        });
+
+        $(document).on('keydown', (e) => {
+            if (e.shiftKey && !isShiftPressed) {
+                isShiftPressed = true;
+                updateButtonStates();
+            }
+        });
+
+        $(document).on('keyup', (e) => {
+            if (!e.shiftKey && isShiftPressed) {
+                isShiftPressed = false;
+                updateButtonStates();
+            }
+        });
+
+        // Handle window blur to reset shift state
+        $(window).on('blur', () => {
+            if (isShiftPressed) {
+                isShiftPressed = false;
+                updateButtonStates();
             }
         });
 
