@@ -1,6 +1,8 @@
-﻿<div id="swarm_generate_button_container" class="menu_button menu_button_icon swarm-dropdown-container" title="SwarmUI Image Generation">
-    <i class="fa-solid fa-wand-magic-sparkles"></i>
-    <span></span>
+﻿<div id="swarm_generate_button_container" class="menu_button menu_button_icon swarm-dropdown-container">
+    <div class="swarm-dropdown-trigger">
+        <i class="fa-solid fa-wand-magic-sparkles"></i>
+        <span></span>
+    </div>
     <div class="swarm-dropdown-menu">
         <button class="swarm-dropdown-item" data-action="generate_image">
             <i class="fa-solid fa-wand-magic-sparkles"></i>
@@ -10,18 +12,17 @@
             <i class="fa-solid fa-rotate"></i>
             <span>Generate Image (Reversed)</span>
         </button>
+        <button class="swarm-dropdown-item" data-action="generate_prompt">
+            <i class="fa-solid fa-pen-fancy"></i>
+            <span>Generate Prompt Only</span>
+        </button>
         <button class="swarm-dropdown-item" data-action="generate_from_message">
             <i class="fa-solid fa-image"></i>
             <span>Generate from Last Message</span>
         </button>
         <button class="swarm-dropdown-item" data-action="generate_from_message_reversed">
-            <i class="fa-solid fa-image"></i>
-            <i class="fa-solid fa-rotate"></i>
+            <i class="fa-solid fa-image fa-rotate"></i>
             <span>Generate from Last (Reversed)</span>
-        </button>
-        <button class="swarm-dropdown-item" data-action="generate_prompt">
-            <i class="fa-solid fa-pen-fancy"></i>
-            <span>Generate Prompt Only</span>
         </button>
     </div>
 </div>

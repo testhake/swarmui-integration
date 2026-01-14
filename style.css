@@ -579,23 +579,30 @@
         color: #6c757d !important;
     }
 
-    /* Dropdown Container */
+    /* Main button container */
     .swarm-dropdown-container {
         position: relative;
+        display: inline-block;
+    }
+
+    .swarm-dropdown-trigger {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
     }
 
     .swarm-dropdown-menu {
         display: none;
         position: absolute;
-        top: 100%;
+        top: calc(100% + 4px);
         left: 0;
         background: var(--SmartThemeBodyColor, #222);
         border: 1px solid var(--SmartThemeBorderColor, #444);
         border-radius: 4px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         z-index: 10000;
-        min-width: 220px;
-        margin-top: 4px;
+        min-width: 240px;
         padding: 4px 0;
     }
 
@@ -631,7 +638,6 @@
 
             .swarm-dropdown-item i.fa-rotate {
                 font-size: 10px;
-                margin-left: -4px;
             }
 
     /* Per-message button styling */
@@ -642,20 +648,21 @@
 
     .swarm_mes_button_trigger {
         color: #dc3545 !important;
+        cursor: pointer;
     }
 
     .swarm_mes_dropdown {
         display: none;
         position: absolute;
-        bottom: 100%;
-        left: 0;
+        bottom: calc(100% + 4px);
+        left: 50%;
+        transform: translateX(-50%);
         background: var(--SmartThemeBodyColor, #222);
         border: 1px solid var(--SmartThemeBorderColor, #444);
         border-radius: 4px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         z-index: 10000;
-        min-width: 220px;
-        margin-bottom: 4px;
+        min-width: 240px;
         padding: 4px 0;
     }
 
@@ -691,13 +698,12 @@
 
             .swarm_mes_dropdown_item i.fa-rotate {
                 font-size: 9px;
-                margin-left: -4px;
             }
 
-    /* Remove old button styles */
+    /* Hide old button styles */
     .swarm_mes_gen_image,
     .swarm_mes_gen_prompt,
     .swarm_mes_gen_from_msg {
-        display: none;
+        display: none !important;
     }
 }

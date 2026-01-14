@@ -1474,17 +1474,31 @@ jQuery(async () => {
         `;
         $("body").append(queueHtml);
 
-        // Dropdown toggle handlers
-        $(document).on('click', '#swarm_generate_button_container', function (e) {
-            if (!$(e.target).closest('.swarm-dropdown-item').length) {
-                e.stopPropagation();
-                toggleDropdown($(this));
+        // Top button dropdown toggle
+        $(document).on('click', '.swarm-dropdown-trigger', function (e) {
+            e.stopPropagation();
+            const $container = $(this).closest('.swarm-dropdown-container');
+            const $menu = $container.find('.swarm-dropdown-menu');
+            const isOpen = $menu.hasClass('show');
+
+            closeAllDropdowns();
+
+            if (!isOpen) {
+                $menu.addClass('show');
             }
         });
 
+        // Per-message button dropdown toggle
         $(document).on('click', '.swarm_mes_button_trigger', function (e) {
             e.stopPropagation();
-            toggleDropdown($(this));
+            const $dropdown = $(this).siblings('.swarm_mes_dropdown');
+            const isOpen = $dropdown.hasClass('show');
+
+            closeAllDropdowns();
+
+            if (!isOpen) {
+                $dropdown.addClass('show');
+            }
         });
 
         // Close dropdowns when clicking outside
@@ -1494,7 +1508,7 @@ jQuery(async () => {
             }
         });
 
-        // Dropdown action handlers
+        // Top dropdown action handlers
         $(document).on('click', '.swarm-dropdown-item', async function (e) {
             e.stopPropagation();
             closeAllDropdowns();
@@ -1504,6 +1518,7 @@ jQuery(async () => {
             await handleSwarmDropdownAction(action, latestMessageIndex);
         });
 
+        // Per-message dropdown action handlers
         $(document).on('click', '.swarm_mes_dropdown_item', async function (e) {
             e.stopPropagation();
             closeAllDropdowns();
