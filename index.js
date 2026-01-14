@@ -532,7 +532,7 @@ function toggleSwarmPopup($button, messageIndex = null) {
     console.log('[swarmUI-integration] Button rect:', buttonRect);
 
     const menuWidth = 200;
-    const menuHeight = 200; // increased estimate
+    const menuHeight = 200;
     const spacing = 8;
 
     let top, left;
@@ -564,9 +564,11 @@ function toggleSwarmPopup($button, messageIndex = null) {
 
     console.log('[swarmUI-integration] Final position:', { top, left });
 
+    // Add temporary debug border
     $menu.css({
-        top: top + 'px',
-        left: left + 'px'
+        'top': top + 'px',
+        'left': left + 'px',
+        'border': '3px solid red' // DEBUG: Remove this later
     });
 
     // Create overlay to close menu when clicking outside
@@ -578,11 +580,18 @@ function toggleSwarmPopup($button, messageIndex = null) {
         closeAllSwarmPopups();
     });
 
-    // Show menu with a slight delay to ensure positioning is complete
+    // Show menu immediately (no animation delay for debugging)
     console.log('[swarmUI-integration] Activating menu');
-    requestAnimationFrame(() => {
-        $menu.addClass('active');
-        console.log('[swarmUI-integration] Menu should now be visible, has active class:', $menu.hasClass('active'));
+    $menu.addClass('active');
+    console.log('[swarmUI-integration] Menu should now be visible');
+    console.log('[swarmUI-integration] Menu computed styles:', {
+        display: $menu.css('display'),
+        visibility: $menu.css('visibility'),
+        opacity: $menu.css('opacity'),
+        zIndex: $menu.css('z-index'),
+        position: $menu.css('position'),
+        top: $menu.css('top'),
+        left: $menu.css('left')
     });
 }
 
