@@ -84,6 +84,12 @@
         flex-wrap: wrap;
     }
 
+#swarm_generate_button {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+}
+
 .swarm-progress {
     color: gray;
     font-style: italic;
@@ -279,8 +285,16 @@
     margin-top: 5px;
 }
 
+.swarm_mes_gen_image {
+    color: #dc3545 !important;
+}
+
 .swarm_mes_gen_prompt {
     color: #ffc107 !important;
+}
+
+.swarm_mes_gen_from_msg {
+    color: #28a745 !important;
 }
 
 #swarm_queue_widget {
@@ -568,9 +582,6 @@
     /* Button colors matching the message buttons */
     #swarm_generate_button i {
         color: #dc3545;
-        display: flex;
-        align-items: center;
-        gap: 0.5em;
     }
 
     #swarm_generate_from_message_button i {
