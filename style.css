@@ -578,4 +578,118 @@
     .text-muted {
         color: #6c757d !important;
     }
+
+    /* Dropdown Container */
+    .swarm-dropdown-container {
+        position: relative;
+        display: inline-block;
+    }
+
+    /* Dropdown Menu */
+    .swarm-dropdown-menu {
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        margin-bottom: 5px;
+        background: var(--SmartThemeBodyColor, #222);
+        border: 1px solid var(--SmartThemeBorderColor, #444);
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        z-index: 10000;
+        min-width: 280px;
+        overflow: hidden;
+    }
+
+    /* Dropdown Item */
+    .swarm-dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 15px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        color: var(--SmartThemeQuoteColor, #fff);
+        font-size: 13px;
+        text-shadow: none;
+    }
+
+        .swarm-dropdown-item:hover {
+            background: var(--SmartThemeBlurTintColor, #333);
+        }
+
+        .swarm-dropdown-item i {
+            font-size: 14px;
+            width: 18px;
+            text-align: center;
+        }
+
+    /* Dropdown Divider */
+    .swarm-dropdown-divider {
+        height: 1px;
+        background: var(--SmartThemeBorderColor, #444);
+        margin: 4px 0;
+    }
+
+    /* Message Dropdown Menu (for individual messages) */
+    .swarm-message-dropdown {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 2px;
+        background: var(--SmartThemeBodyColor, #222);
+        border: 1px solid var(--SmartThemeBorderColor, #444);
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        z-index: 10000;
+        min-width: 280px;
+        overflow: hidden;
+        display: none;
+    }
+
+        .swarm-message-dropdown.active {
+            display: block;
+        }
+
+    /* Message Dropdown Toggle Button */
+    .swarm_mes_dropdown_toggle {
+        position: relative;
+    }
+
+    /* Icon Colors */
+    .swarm-icon-generate {
+        color: #dc3545 !important;
+    }
+
+    .swarm-icon-portrait {
+        color: #e83e8c !important;
+    }
+
+    .swarm-icon-from-message {
+        color: #28a745 !important;
+    }
+
+    .swarm-icon-from-message-portrait {
+        color: #20c997 !important;
+    }
+
+    .swarm-icon-prompt {
+        color: #ffc107 !important;
+    }
+
+    /* Cancel button color */
+    .swarm-queue-cancel {
+        background: none;
+        border: none;
+        color: #ffc107;
+        cursor: pointer;
+        padding: 2px;
+        border-radius: 2px;
+        font-size: 10px;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+    }
+
+        .swarm-queue-cancel:hover {
+            opacity: 1;
+        }
 }
