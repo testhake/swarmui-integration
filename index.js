@@ -20,14 +20,6 @@ let queueProcessorRunning = false;
 
 let activeGenerationControllers = new Map(); // Track AbortControllers for each queue item
 
-const QUEUE_TYPES = {
-    GENERATE_IMAGE: 'generate_image',
-    GENERATE_IMAGE_REVERSED: 'generate_image_reversed',
-    GENERATE_FROM_MESSAGE: 'generate_from_message',
-    GENERATE_FROM_MESSAGE_REVERSED: 'generate_from_message_reversed',
-    GENERATE_PROMPT: 'generate_prompt',
-};
-
 class QueueItem {
     constructor(type, messageIndex, prompt = null, customPrompt = false, savedParams = null) {
         this.id = Date.now() + Math.random();
@@ -41,6 +33,7 @@ class QueueItem {
         this.createdAt = Date.now();
         this.savedParams = savedParams; // Store parameters at queue time
         this.abortController = null;
+        this.isReversed = isReversed; 
 
         // Store the original message ID if we have a valid message index
         if (messageIndex !== null && messageIndex >= 0) {
@@ -82,15 +75,14 @@ class QueueItem {
     }
 }
 
-async function addToQueue(type, messageIndex = null, prompt = null, customPrompt = false, reversesDimensions = false) {
-    // Fetch parameters NOW, when adding to queue
+async function addToQueue(type, messageIndex = null, prompt = null, customPrompt = false, isReversed = false) {
     let savedParams = null;
     try {
         const sessionId = await validateAndGetSessionId();
         savedParams = await getSavedT2IParams(sessionId);
 
         // Reverse dimensions if requested
-        if (reversesDimensions && savedParams) {
+        if (isReversed && savedParams) {
             const width = savedParams.width;
             const height = savedParams.height;
             if (width && height) {
@@ -103,7 +95,7 @@ async function addToQueue(type, messageIndex = null, prompt = null, customPrompt
         console.warn('[swarmUI-integration] Failed to fetch parameters for queue item:', error);
     }
 
-    const queueItem = new QueueItem(type, messageIndex, prompt, customPrompt, savedParams);
+    const queueItem = new QueueItem(type, messageIndex, prompt, customPrompt, savedParams, isReversed);
     imageGenerationQueue.push(queueItem);
 
     updateQueueDisplay();
@@ -184,32 +176,35 @@ function updateQueueDisplay() {
 
         const typeIcon = {
             'generate_image': 'fa-wand-magic-sparkles',
-            'generate_image_reversed': 'fa-wand-magic-sparkles',
             'generate_prompt': 'fa-pen-fancy',
-            'generate_from_message': 'fa-image',
-            'generate_from_message_reversed': 'fa-image'
+            'generate_from_message': 'fa-image'
         }[item.type];
+
+        // Add reversed indicator
+        const reversedIndicator = item.isReversed ? '<i class="fa-solid fa-rotate" style="color: #57f287; margin-left: 4px;" title="Reversed dimensions"></i>' : '';
 
         // Show cancel button for pending OR processing items that involve LLM generation
         const canCancel = (item.status === 'pending' || item.status === 'processing') &&
             (item.type === 'generate_image' || item.type === 'generate_prompt');
 
         const queueItemHtml = `
-            <div class="swarm-queue-item" data-item-id="${item.id}">
-                <div class="swarm-queue-item-header">
-                    <div class="swarm-queue-icons">
-                        <i class="fa-solid ${statusIcon}"></i>
-                        <i class="fa-solid ${typeIcon}"></i>
-                    </div>
-                    ${canCancel ?
-                `<button class="swarm-queue-cancel" data-item-id="${item.id}" title="Cancel">
-                            <i class="fa-solid fa-ban"></i>
-                        </button>` : ''}
-                </div>
-                <div class="swarm-queue-message" title="${messageText}">${messageText}</div>
-                ${item.error ? `<div class="swarm-queue-error">${item.error}</div>` : ''}
+    <div class="swarm-queue-item" data-item-id="${item.id}">
+        <div class="swarm-queue-item-header">
+            <div class="swarm-queue-icons">
+                <i class="fa-solid ${statusIcon}"></i>
+                <i class="fa-solid ${typeIcon}"></i>
+                ${reversedIndicator}
             </div>
-        `;
+            ${canCancel ?
+                `<button class="swarm-queue-cancel" data-item-id="${item.id}" title="Cancel">
+                    <i class="fa-solid fa-ban"></i>
+                </button>` : ''}
+        </div>
+        <div class="swarm-queue-message" title="${messageText}">${messageText}</div>
+        ${item.error ? `<div class="swarm-queue-error">${item.error}</div>` : ''}
+    </div>
+`;
+
 
         $queueList.append(queueItemHtml);
     });
@@ -321,8 +316,8 @@ async function processQueueItem(item) {
     item.abortController = new AbortController();
 
     switch (item.type) {
-        case QUEUE_TYPES.GENERATE_IMAGE:
-        case QUEUE_TYPES.GENERATE_IMAGE_REVERSED: {
+        case 'generate_image':
+        case 'generate_image_reversed': { // Handle both types
             let imagePrompt;
 
             if (item.customPrompt) {
@@ -337,10 +332,11 @@ async function processQueueItem(item) {
 
             const result = await generateAndSaveImage(imagePrompt, item.savedParams);
 
+            const messagePrefix = item.isReversed ? 'Generated image (reversed)' : 'Generated image';
             await addImageMessage(
                 result.savedImagePath,
                 result.imagePrompt,
-                item.type === QUEUE_TYPES.GENERATE_IMAGE_REVERSED ? 'Generated image (reversed)' : 'Generated image',
+                messagePrefix,
                 currentMessageIndex
             );
 
@@ -348,7 +344,7 @@ async function processQueueItem(item) {
             break;
         }
 
-        case QUEUE_TYPES.GENERATE_PROMPT: {
+        case 'generate_prompt': {
             const imagePrompt = await generateImagePromptFromChat(currentMessageIndex, item.abortController);
 
             if (item.status === 'cancelled') {
@@ -378,8 +374,8 @@ async function processQueueItem(item) {
             break;
         }
 
-        case QUEUE_TYPES.GENERATE_FROM_MESSAGE:
-        case QUEUE_TYPES.GENERATE_FROM_MESSAGE_REVERSED: {
+        case 'generate_from_message':
+        case 'generate_from_message_reversed': { // Handle both types
             if (currentMessageIndex === null || currentMessageIndex < 0 || currentMessageIndex >= chat.length) {
                 throw new Error(`Cannot generate from message: invalid index ${currentMessageIndex}`);
             }
@@ -393,10 +389,11 @@ async function processQueueItem(item) {
             const imagePrompt = messageText.trim();
             const result = await generateAndSaveImage(imagePrompt, item.savedParams);
 
+            const messagePrefix = item.isReversed ? 'Generated image from message (reversed)' : 'Generated image from message';
             await addImageMessage(
                 result.savedImagePath,
                 result.imagePrompt,
-                item.type === QUEUE_TYPES.GENERATE_FROM_MESSAGE_REVERSED ? 'Generated image from message (reversed)' : 'Generated image from message',
+                messagePrefix,
                 currentMessageIndex
             );
 
@@ -405,6 +402,7 @@ async function processQueueItem(item) {
         }
     }
 }
+
 function playNotificationSound() {
     try {
         const audio = new Audio();
@@ -416,6 +414,103 @@ function playNotificationSound() {
     } catch (error) {
         console.log('[swarmUI-integration] Audio notification failed:', error);
     }
+}
+
+// Popup Menu Management
+function createSwarmPopupMenu(parentElement, messageIndex = null) {
+    const isMessageButton = messageIndex !== null;
+
+    const menuHtml = `
+        <div class="swarm-popup-menu">
+            <button class="swarm-popup-menu-item action-generate" data-action="generate_image" data-reversed="false">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span>Generate Image (LLM)</span>
+            </button>
+            <button class="swarm-popup-menu-item action-generate-reversed" data-action="generate_image" data-reversed="true">
+                <i class="fa-solid fa-rotate"></i>
+                <span>Generate (LLM, Reversed)</span>
+            </button>
+            <div class="swarm-popup-menu-separator"></div>
+            <button class="swarm-popup-menu-item action-direct" data-action="generate_from_message" data-reversed="false">
+                <i class="fa-solid fa-image"></i>
+                <span>Generate from Message</span>
+            </button>
+            <button class="swarm-popup-menu-item action-direct" data-action="generate_from_message" data-reversed="true">
+                <i class="fa-solid fa-image"></i>
+                <span>Generate (Reversed)</span>
+            </button>
+            <div class="swarm-popup-menu-separator"></div>
+            <button class="swarm-popup-menu-item action-prompt-only" data-action="generate_prompt" data-reversed="false">
+                <i class="fa-solid fa-pen-fancy"></i>
+                <span>Generate Prompt Only</span>
+            </button>
+        </div>
+    `;
+
+    $(parentElement).append(menuHtml);
+
+    const $menu = $(parentElement).find('.swarm-popup-menu');
+
+    // Bind click events to menu items
+    $menu.find('.swarm-popup-menu-item').on('click', async function (e) {
+        e.stopPropagation();
+        const action = $(this).data('action');
+        const isReversed = $(this).data('reversed') === true;
+
+        closeAllSwarmPopups();
+
+        const context = getContext();
+        const targetMessageIndex = messageIndex !== null ? messageIndex : context.chat.length - 1;
+
+        if (action === 'generate_image') {
+            if (settings.show_prompt_modal !== false) {
+                generateImageWithModal(targetMessageIndex, isReversed);
+            } else {
+                await addToQueue('generate_image', targetMessageIndex, null, false, isReversed);
+                toastr.info(isReversed ? 'Image generation (reversed) added to queue' : 'Image generation added to queue');
+            }
+        } else if (action === 'generate_prompt') {
+            await addToQueue('generate_prompt', targetMessageIndex);
+            toastr.info('Prompt generation added to queue');
+        } else if (action === 'generate_from_message') {
+            await addToQueue('generate_from_message', targetMessageIndex, null, false, isReversed);
+            toastr.info(isReversed ? 'Image generation from message (reversed) added to queue' : 'Image generation from message added to queue');
+        }
+    });
+
+    return $menu;
+}
+
+function closeAllSwarmPopups() {
+    $('.swarm-popup-menu').removeClass('active');
+    $('.swarm-popup-overlay').remove();
+}
+
+function toggleSwarmPopup($button, messageIndex = null) {
+    const $container = $button.closest('.swarm-popup-container');
+    let $menu = $container.find('.swarm-popup-menu');
+
+    // Close any other open popups first
+    closeAllSwarmPopups();
+
+    // If menu doesn't exist, create it
+    if ($menu.length === 0) {
+        $menu = createSwarmPopupMenu($container[0], messageIndex);
+    }
+
+    // Toggle menu
+    if ($menu.hasClass('active')) {
+        $menu.removeClass('active');
+        return;
+    }
+
+    // Create overlay to close menu when clicking outside
+    const $overlay = $('<div class="swarm-popup-overlay"></div>');
+    $('body').append($overlay);
+    $overlay.on('click', closeAllSwarmPopups);
+
+    // Show menu
+    $menu.addClass('active');
 }
 
 export function getCustomModel() {
@@ -1103,126 +1198,25 @@ function injectSwarmUIButtons() {
     $('.extraMesButtons').each(function () {
         const $container = $(this);
 
-        if ($container.find('.swarm_mes_menu_button').length > 0) {
+        if ($container.find('.swarm_mes_button').length > 0) {
             return;
         }
 
-        const swarmButton = `
-            <div class="mes_button swarm_mes_menu_button fa-solid fa-wand-magic-sparkles" data-swarm-menu-btn="true"></div>
+        // Wrap in container for popup positioning
+        const swarmButtonHtml = `
+            <div class="swarm-popup-container" style="display: inline-block; position: relative;">
+                <div title="SwarmUI Image Generation" class="mes_button swarm_mes_button fa-solid fa-wand-magic-sparkles" data-i18n="[title]SwarmUI Image Generation"></div>
+            </div>
         `;
 
         const $sdButton = $container.find('.sd_message_gen');
         if ($sdButton.length > 0) {
-            $sdButton.after(swarmButton);
+            $sdButton.after(swarmButtonHtml);
         } else {
-            $container.prepend(swarmButton);
+            $container.prepend(swarmButtonHtml);
         }
     });
 }
-function createSwarmMenu(isPerMessage = false) {
-    const $menu = $('<div>', {
-        'class': 'swarm-dropdown-menu',
-        'css': {
-            'position': 'absolute',
-            'display': 'none',
-            'z-index': '99999'
-        }
-    });
-
-    const menuItems = [
-        {
-            class: 'generate-image',
-            action: 'generate-image',
-            icon: 'fa-solid fa-wand-magic-sparkles',
-            text: 'Generate Image (LLM)'
-        },
-        {
-            class: 'generate-image-reversed',
-            action: 'generate-image-reversed',
-            icon: 'fa-solid fa-rotate-90 fa-wand-magic-sparkles',
-            text: 'Generate Image (LLM, Reversed)'
-        },
-        { divider: true },
-        {
-            class: 'generate-from-message',
-            action: 'generate-from-message',
-            icon: 'fa-solid fa-image',
-            text: 'Generate from Message'
-        },
-        {
-            class: 'generate-from-message-reversed',
-            action: 'generate-from-message-reversed',
-            icon: 'fa-solid fa-rotate-90 fa-image',
-            text: 'Generate from Message (Reversed)'
-        },
-        { divider: true },
-        {
-            class: 'generate-prompt',
-            action: 'generate-prompt',
-            icon: 'fa-solid fa-pen-fancy',
-            text: 'Generate Prompt Only'
-        }
-    ];
-
-    menuItems.forEach(item => {
-        if (item.divider) {
-            $menu.append($('<div>', { 'class': 'swarm-menu-divider' }));
-        } else {
-            const $item = $('<div>', {
-                'class': `swarm-menu-item ${item.class}`,
-                'data-action': item.action
-            });
-
-            $item.append($('<i>', { 'class': item.icon }));
-            $item.append($('<span>').text(item.text));
-
-            $menu.append($item);
-        }
-    });
-
-    return $menu;
-}
-
-function handleMenuAction(action, messageIndex = null) {
-    const context = getContext();
-    const targetIndex = messageIndex !== null ? messageIndex : context.chat.length - 1;
-
-    switch (action) {
-        case 'generate-image':
-            if (settings.show_prompt_modal !== false) {
-                generateImageWithModal(targetIndex, false);
-            } else {
-                addToQueue(QUEUE_TYPES.GENERATE_IMAGE, targetIndex, null, false, false);
-                toastr.info('Image generation added to queue');
-            }
-            break;
-
-        case 'generate-image-reversed':
-            if (settings.show_prompt_modal !== false) {
-                generateImageWithModal(targetIndex, true);
-            } else {
-                addToQueue(QUEUE_TYPES.GENERATE_IMAGE_REVERSED, targetIndex, null, false, true);
-                toastr.info('Image generation (reversed) added to queue');
-            }
-            break;
-
-        case 'generate-from-message':
-            addToQueue(QUEUE_TYPES.GENERATE_FROM_MESSAGE, targetIndex, null, false, false);
-            toastr.info('Image generation from message added to queue');
-            break;
-
-        case 'generate-from-message-reversed':
-            addToQueue(QUEUE_TYPES.GENERATE_FROM_MESSAGE_REVERSED, targetIndex, null, false, true);
-            toastr.info('Image generation from message (reversed) added to queue');
-            break;
-
-        case 'generate-prompt':
-            addToQueue(QUEUE_TYPES.GENERATE_PROMPT, targetIndex);
-            toastr.info('Prompt generation added to queue');
-            break;
-    }
-}
-
 
 function observeForNewMessages() {
     const observer = new MutationObserver(function (mutations) {
@@ -1437,7 +1431,7 @@ class SwarmPromptModal {
     }
 }
 
-async function generateImageWithModal(upToMessageIndex = null, reverseDimensions = false) {
+async function generateImageWithModal(upToMessageIndex = null, isReversed = false) {
     try {
         const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
@@ -1446,9 +1440,9 @@ async function generateImageWithModal(upToMessageIndex = null, reverseDimensions
         }
 
         promptModal.onGenerate = async (finalPrompt) => {
-            const queueType = reverseDimensions ? QUEUE_TYPES.GENERATE_IMAGE_REVERSED : QUEUE_TYPES.GENERATE_IMAGE;
-            await addToQueue(queueType, upToMessageIndex, finalPrompt, true, reverseDimensions);
-            toastr.success(`Custom prompt image generation${reverseDimensions ? ' (reversed)' : ''} added to queue`);
+            await addToQueue('generate_image', upToMessageIndex, finalPrompt, true, isReversed);
+            const message = isReversed ? 'Custom prompt image generation (reversed) added to queue' : 'Custom prompt image generation added to queue';
+            toastr.success(message);
         };
 
         promptModal.onCancel = () => {
@@ -1498,7 +1492,12 @@ jQuery(async () => {
         $("#swarm_settings input, #swarm_settings textarea").on("input", onInput);
 
         const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
-        $("#send_but").before(buttonHtml);
+        const $sendBut = $("#send_but");
+
+        // Wrap the button in a container for popup positioning
+        const $buttonContainer = $('<div class="swarm-popup-container" style="position: relative; display: inline-block;"></div>');
+        $buttonContainer.html(buttonHtml);
+        $sendBut.before($buttonContainer);
 
         const queueHtml = `
             <div id="swarm_queue_widget" style="display: none;">
@@ -1521,117 +1520,27 @@ jQuery(async () => {
         `;
         $("body").append(queueHtml);
 
-        console.log('[swarmUI-integration] Setting up event handlers...');
-
-        // Track open menus
-        let currentOpenMenu = null;
-
-        function closeAllMenus() {
-            $('.swarm-dropdown-menu').removeClass('active');
-            currentOpenMenu = null;
-        }
-
-        function openMenu($button, messageId = null) {
-            // Close any existing menus
-            closeAllMenus();
-
-            // Find or create menu
-            let $menu = $button.find('.swarm-dropdown-menu');
-            if ($menu.length === 0) {
-                $menu = createSwarmMenu(messageId !== null);
-                $button.append($menu);
-                console.log('[swarmUI-integration] Created new menu');
-            }
-
-            // Store message ID
-            if (messageId !== null) {
-                $menu.data('message-id', messageId);
-            }
-
-            // Open menu
-            $menu.addClass('active');
-            currentOpenMenu = $menu;
-            console.log('[swarmUI-integration] Opened menu');
-        }
-
-        // Use event delegation on document for main button
-        $(document).on('click', '#swarm_menu_button', function (e) {
-            console.log('[swarmUI-integration] Main button clicked');
-            e.preventDefault();
+        // Bind main button to toggle popup
+        $(document).on('click', '#swarm_generate_button', function (e) {
             e.stopPropagation();
-
-            const $button = $(this);
-            const $existingMenu = $button.find('.swarm-dropdown-menu');
-
-            // If menu exists and is open, close it
-            if ($existingMenu.length > 0 && $existingMenu.hasClass('active')) {
-                console.log('[swarmUI-integration] Closing existing menu');
-                closeAllMenus();
-            } else {
-                // Open menu
-                console.log('[swarmUI-integration] Opening menu');
-                openMenu($button, null);
-            }
+            toggleSwarmPopup($(this));
         });
 
-        // Per-message button handler with delegation
-        $(document).on('click', '.swarm_mes_menu_button', function (e) {
-            console.log('[swarmUI-integration] Message button clicked');
-            e.preventDefault();
+        // Bind message buttons to toggle popup
+        $(document).on('click', '.swarm_mes_button', function (e) {
             e.stopPropagation();
-
-            const $button = $(this);
-            const $mes = $button.closest('.mes');
+            const $mes = $(this).closest('.mes');
             const messageId = parseInt($mes.attr('mesid'));
-            const $existingMenu = $button.find('.swarm-dropdown-menu');
-
-            // If menu exists and is open, close it
-            if ($existingMenu.length > 0 && $existingMenu.hasClass('active')) {
-                console.log('[swarmUI-integration] Closing existing message menu');
-                closeAllMenus();
-            } else {
-                // Open menu
-                console.log('[swarmUI-integration] Opening message menu for message:', messageId);
-                openMenu($button, messageId);
-            }
+            toggleSwarmPopup($(this), messageId);
         });
 
-        // Menu item click handler
-        $(document).on('click', '.swarm-menu-item', function (e) {
-            console.log('[swarmUI-integration] Menu item clicked');
-            e.preventDefault();
-            e.stopPropagation();
-
-            const $item = $(this);
-            const action = $item.data('action');
-            const $menu = $item.closest('.swarm-dropdown-menu');
-            const messageId = $menu.data('message-id');
-
-            console.log('[swarmUI-integration] Action:', action, 'MessageId:', messageId);
-
-            // Close menu
-            closeAllMenus();
-
-            // Execute action
-            handleMenuAction(action, messageId);
-        });
-
-        // Click outside to close
-        $(document).on('click', function (e) {
-            const $target = $(e.target);
-            if (!$target.closest('#swarm_menu_button').length &&
-                !$target.closest('.swarm_mes_menu_button').length &&
-                !$target.closest('.swarm-dropdown-menu').length) {
-                closeAllMenus();
-            }
-        });
-
-        // Escape key to close
-        $(document).on('keydown', function (e) {
-            if (e.key === 'Escape') {
-                closeAllMenus();
-            }
-        });
+        // Remove old button handlers (no longer needed)
+        // $("#swarm_generate_button").on("click", ...) - REMOVED
+        // $("#swarm_generate_prompt_button").on("click", ...) - REMOVED
+        // $("#swarm_generate_from_message_button").on("click", ...) - REMOVED
+        // $(document).on('click', '.swarm_mes_gen_image', ...) - REMOVED
+        // $(document).on('click', '.swarm_mes_gen_prompt', ...) - REMOVED
+        // $(document).on('click', '.swarm_mes_gen_from_msg', ...) - REMOVED
 
         $(document).on('click', '.swarm-queue-cancel', (e) => {
             const itemId = parseFloat($(e.target).closest('.swarm-queue-cancel').data('item-id'));
@@ -1669,16 +1578,7 @@ jQuery(async () => {
 
         await loadSettings();
 
-        // Verify button exists
-        setTimeout(() => {
-            const $btn = $('#swarm_menu_button');
-            console.log('[swarmUI-integration] Button found:', $btn.length > 0);
-            if ($btn.length > 0) {
-                console.log('[swarmUI-integration] Button element:', $btn[0]);
-            }
-        }, 500);
-
-        console.log('[swarmUI-integration] Extension initialized successfully');
+        console.log('[swarmUI-integration] Extension initialized successfully with popup menu system');
     } catch (error) {
         console.error('[swarmUI-integration] Failed to initialize extension:', error);
     }

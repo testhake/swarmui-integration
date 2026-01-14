@@ -579,129 +579,123 @@
         color: #6c757d !important;
     }
 
-    /* SwarmUI Menu Styles - Maximum specificity */
-    #swarm_menu_button,
-    .swarm_mes_menu_button {
-        position: relative !important;
+    /* SwarmUI Popup Menu - Isolated Styles */
+    .swarm-popup-menu {
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        margin-bottom: 8px;
+        background: #2b2d31;
+        border: 1px solid #1e1f22;
+        border-radius: 6px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+        padding: 4px;
+        z-index: 10001;
+        min-width: 220px;
+        opacity: 0;
+        transform: translateY(4px);
+        pointer-events: none;
+        transition: opacity 0.15s ease, transform 0.15s ease;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
     }
 
-    .swarm-dropdown-menu {
-        position: absolute !important;
-        bottom: calc(100% + 4px) !important;
-        left: 50% !important;
-        transform: translateX(-50%) !important;
-        background: #1a1a1a !important;
-        border: 1px solid #3a3a3a !important;
-        border-radius: 4px !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.8) !important;
-        z-index: 99999 !important;
-        min-width: 190px !important;
-        width: auto !important;
-        max-width: 250px !important;
-        padding: 4px !important;
-        margin: 0 !important;
-        display: none !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-        transition: opacity 0.15s ease !important;
+        .swarm-popup-menu.active {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: all;
+        }
+
+    .swarm-popup-menu-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.1s ease;
+        color: #e4e4e7;
+        text-shadow: none;
+        font-weight: 500;
+        white-space: nowrap;
+        border: none;
+        background: transparent;
+        width: 100%;
+        text-align: left;
     }
 
-        .swarm-dropdown-menu.active {
-            display: block !important;
-            opacity: 1 !important;
-            pointer-events: auto !important;
+        .swarm-popup-menu-item:hover {
+            background: #3a3d44;
         }
 
-    /* Position below for per-message buttons */
-    .swarm_mes_menu_button > .swarm-dropdown-menu {
-        bottom: auto !important;
-        top: calc(100% + 4px) !important;
+        .swarm-popup-menu-item i {
+            width: 16px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+    .swarm-popup-menu-separator {
+        height: 1px;
+        background: #3a3d44;
+        margin: 4px 0;
     }
 
-    .swarm-menu-item {
-        all: unset !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 8px !important;
-        padding: 5px 8px !important;
-        margin: 1px 0 !important;
-        cursor: pointer !important;
-        border-radius: 3px !important;
-        transition: background-color 0.1s ease !important;
-        background: transparent !important;
-        color: #d0d0d0 !important;
-        white-space: nowrap !important;
-        border: none !important;
-        border-left: 2px solid transparent !important;
-        box-sizing: border-box !important;
-        text-decoration: none !important;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-        font-size: 11px !important;
-        font-weight: 400 !important;
-        line-height: 1.3 !important;
-        text-align: left !important;
-        text-shadow: none !important;
+    /* Color coding for different action types */
+    .swarm-popup-menu-item.action-generate i {
+        color: #5865f2; /* Blue - primary generation */
     }
 
-        .swarm-menu-item:hover {
-            background: rgba(255, 255, 255, 0.1) !important;
-            color: #ffffff !important;
+    .swarm-popup-menu-item.action-generate-reversed i {
+        color: #57f287; /* Green - reversed generation */
+    }
+
+    .swarm-popup-menu-item.action-direct i {
+        color: #faa61a; /* Orange - direct generation */
+    }
+
+    .swarm-popup-menu-item.action-prompt-only i {
+        color: #eb459e; /* Pink - prompt only */
+    }
+
+    /* Message button popup positioning */
+    .mes .swarm-popup-container {
+        position: relative;
+        display: inline-block;
+    }
+
+    .mes .swarm-popup-menu {
+        bottom: auto;
+        top: 100%;
+        margin-top: 8px;
+        margin-bottom: 0;
+    }
+
+    /* Ensure popup is above everything */
+    .swarm-popup-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 10000;
+        background: transparent;
+    }
+
+    /* Animation for popup */
+    @keyframes swarmPopupSlideIn {
+        from {
+            opacity: 0;
+            transform: translateY(4px);
         }
 
-        .swarm-menu-item > i {
-            all: unset !important;
-            width: 12px !important;
-            height: 12px !important;
-            font-size: 11px !important;
-            display: inline-flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            flex-shrink: 0 !important;
-            font-family: "Font Awesome 6 Free" !important;
-            font-weight: 900 !important;
-            -webkit-font-smoothing: antialiased !important;
-            font-style: normal !important;
-            font-variant: normal !important;
-            text-rendering: auto !important;
-            line-height: 1 !important;
+        to {
+            opacity: 1;
+            transform: translateY(0);
         }
+    }
 
-        .swarm-menu-item > span {
-            all: unset !important;
-            font-size: 11px !important;
-            font-weight: 400 !important;
-            line-height: 1.3 !important;
-            color: inherit !important;
-            text-shadow: none !important;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-        }
-
-        /* Color coding */
-        .swarm-menu-item.generate-image {
-            border-left-color: #dc3545 !important;
-        }
-
-        .swarm-menu-item.generate-image-reversed {
-            border-left-color: #fd7e14 !important;
-        }
-
-        .swarm-menu-item.generate-from-message {
-            border-left-color: #28a745 !important;
-        }
-
-        .swarm-menu-item.generate-from-message-reversed {
-            border-left-color: #20c997 !important;
-        }
-
-        .swarm-menu-item.generate-prompt {
-            border-left-color: #ffc107 !important;
-        }
-
-    .swarm-menu-divider {
-        all: unset !important;
-        display: block !important;
-        height: 1px !important;
-        background: #3a3a3a !important;
-        margin: 3px 0 !important;
+    .swarm-popup-menu.active {
+        animation: swarmPopupSlideIn 0.15s ease;
     }
 }
