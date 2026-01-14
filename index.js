@@ -34,6 +34,7 @@ class QueueItem {
         this.error = null;
         this.createdAt = Date.now();
         this.savedParams = savedParams; // Store parameters at queue time
+        this.swapDimensions = swapDimensions; 
         this.abortController = null;
 
         // Store the original message ID if we have a valid message index
@@ -314,6 +315,7 @@ async function processQueueItem(item) {
                 throw new Error('Generation cancelled');
             }
 
+            // Use item.swapDimensions here
             const result = await generateAndSaveImage(imagePrompt, item.savedParams, item.swapDimensions);
 
             await addImageMessage(
@@ -369,6 +371,7 @@ async function processQueueItem(item) {
             }
 
             const imagePrompt = messageText.trim();
+            // Use item.swapDimensions here
             const result = await generateAndSaveImage(imagePrompt, item.savedParams, item.swapDimensions);
 
             await addImageMessage(
@@ -383,6 +386,7 @@ async function processQueueItem(item) {
         }
     }
 }
+
 function playNotificationSound() {
     try {
         const audio = new Audio();
