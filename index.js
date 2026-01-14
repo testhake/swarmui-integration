@@ -20,6 +20,14 @@ let queueProcessorRunning = false;
 
 let activeGenerationControllers = new Map(); // Track AbortControllers for each queue item
 
+const QUEUE_TYPES = {
+    GENERATE_IMAGE: 'generate_image',
+    GENERATE_IMAGE_REVERSED: 'generate_image_reversed',
+    GENERATE_FROM_MESSAGE: 'generate_from_message',
+    GENERATE_FROM_MESSAGE_REVERSED: 'generate_from_message_reversed',
+    GENERATE_PROMPT: 'generate_prompt',
+};
+
 class QueueItem {
     constructor(type, messageIndex, prompt = null, customPrompt = false, savedParams = null) {
         this.id = Date.now() + Math.random();
@@ -32,7 +40,6 @@ class QueueItem {
         this.error = null;
         this.createdAt = Date.now();
         this.savedParams = savedParams; // Store parameters at queue time
-        this.swapDimensions = swapDimensions;
         this.abortController = null;
 
         // Store the original message ID if we have a valid message index
@@ -75,16 +82,28 @@ class QueueItem {
     }
 }
 
-async function addToQueue(type, messageIndex = null, prompt = null, customPrompt = false, swapDimensions = false) {
+async function addToQueue(type, messageIndex = null, prompt = null, customPrompt = false, reversesDimensions = false) {
+    // Fetch parameters NOW, when adding to queue
     let savedParams = null;
     try {
         const sessionId = await validateAndGetSessionId();
         savedParams = await getSavedT2IParams(sessionId);
+
+        // Reverse dimensions if requested
+        if (reversesDimensions && savedParams) {
+            const width = savedParams.width;
+            const height = savedParams.height;
+            if (width && height) {
+                savedParams.width = height;
+                savedParams.height = width;
+                console.log(`[swarmUI-integration] Reversed dimensions: ${width}x${height} -> ${height}x${width}`);
+            }
+        }
     } catch (error) {
         console.warn('[swarmUI-integration] Failed to fetch parameters for queue item:', error);
     }
 
-    const queueItem = new QueueItem(type, messageIndex, prompt, customPrompt, savedParams, swapDimensions);
+    const queueItem = new QueueItem(type, messageIndex, prompt, customPrompt, savedParams);
     imageGenerationQueue.push(queueItem);
 
     updateQueueDisplay();
@@ -165,8 +184,10 @@ function updateQueueDisplay() {
 
         const typeIcon = {
             'generate_image': 'fa-wand-magic-sparkles',
+            'generate_image_reversed': 'fa-wand-magic-sparkles',
             'generate_prompt': 'fa-pen-fancy',
-            'generate_from_message': 'fa-image'
+            'generate_from_message': 'fa-image',
+            'generate_from_message_reversed': 'fa-image'
         }[item.type];
 
         // Show cancel button for pending OR processing items that involve LLM generation
@@ -300,7 +321,8 @@ async function processQueueItem(item) {
     item.abortController = new AbortController();
 
     switch (item.type) {
-        case 'generate_image': {
+        case QUEUE_TYPES.GENERATE_IMAGE:
+        case QUEUE_TYPES.GENERATE_IMAGE_REVERSED: {
             let imagePrompt;
 
             if (item.customPrompt) {
@@ -313,12 +335,12 @@ async function processQueueItem(item) {
                 throw new Error('Generation cancelled');
             }
 
-            const result = await generateAndSaveImage(imagePrompt, item.savedParams, item.swapDimensions);
+            const result = await generateAndSaveImage(imagePrompt, item.savedParams);
 
             await addImageMessage(
                 result.savedImagePath,
                 result.imagePrompt,
-                item.swapDimensions ? 'Generated portrait image' : 'Generated image',
+                item.type === QUEUE_TYPES.GENERATE_IMAGE_REVERSED ? 'Generated image (reversed)' : 'Generated image',
                 currentMessageIndex
             );
 
@@ -326,7 +348,7 @@ async function processQueueItem(item) {
             break;
         }
 
-        case 'generate_prompt': {
+        case QUEUE_TYPES.GENERATE_PROMPT: {
             const imagePrompt = await generateImagePromptFromChat(currentMessageIndex, item.abortController);
 
             if (item.status === 'cancelled') {
@@ -356,7 +378,8 @@ async function processQueueItem(item) {
             break;
         }
 
-        case 'generate_from_message': {
+        case QUEUE_TYPES.GENERATE_FROM_MESSAGE:
+        case QUEUE_TYPES.GENERATE_FROM_MESSAGE_REVERSED: {
             if (currentMessageIndex === null || currentMessageIndex < 0 || currentMessageIndex >= chat.length) {
                 throw new Error(`Cannot generate from message: invalid index ${currentMessageIndex}`);
             }
@@ -368,12 +391,12 @@ async function processQueueItem(item) {
             }
 
             const imagePrompt = messageText.trim();
-            const result = await generateAndSaveImage(imagePrompt, item.savedParams, item.swapDimensions);
+            const result = await generateAndSaveImage(imagePrompt, item.savedParams);
 
             await addImageMessage(
                 result.savedImagePath,
                 result.imagePrompt,
-                item.swapDimensions ? 'Generated portrait from message' : 'Generated image from message',
+                item.type === QUEUE_TYPES.GENERATE_FROM_MESSAGE_REVERSED ? 'Generated image from message (reversed)' : 'Generated image from message',
                 currentMessageIndex
             );
 
@@ -962,25 +985,18 @@ async function generateImagePromptFromChat(upToMessageIndex = null, abortControl
     return imagePrompt;
 }
 
-async function generateAndSaveImage(imagePrompt, savedParamsFromQueue = null, swapDimensions = false) {
+async function generateAndSaveImage(imagePrompt, savedParamsFromQueue = null) {
     const context = getContext();
 
     try {
         const sessionId = await validateAndGetSessionId();
 
+        // Use parameters from queue if available, otherwise fetch fresh ones
         const savedParams = savedParamsFromQueue !== null
             ? savedParamsFromQueue
             : await getSavedT2IParams(sessionId);
 
         let rawInput = { ...savedParams };
-
-        // Swap width and height if requested
-        if (swapDimensions && rawInput.width && rawInput.height) {
-            const temp = rawInput.width;
-            rawInput.width = rawInput.height;
-            rawInput.height = temp;
-            console.log(`[swarmUI-integration] Swapped dimensions: ${rawInput.width}x${rawInput.height}`);
-        }
 
         const cleanPrompt = imagePrompt;
         let finalPrompt = cleanPrompt;
@@ -1087,16 +1103,12 @@ function injectSwarmUIButtons() {
     $('.extraMesButtons').each(function () {
         const $container = $(this);
 
-        if ($container.find('.swarm_mes_dropdown_toggle').length > 0) {
+        if ($container.find('.swarm_mes_menu_button').length > 0) {
             return;
         }
 
         const swarmButton = `
-            <div class="mes_button swarm_mes_dropdown_toggle fa-solid fa-wand-magic-sparkles" 
-                 title="SwarmUI Image Generation" 
-                 data-i18n="[title]SwarmUI Image Generation"
-                 style="position: relative; color: #dc3545 !important;">
-            </div>
+            <div title="SwarmUI Image Generation" class="mes_button swarm_mes_menu_button swarm_mes_button fa-solid fa-wand-magic-sparkles" data-i18n="[title]SwarmUI Image Generation"></div>
         `;
 
         const $sdButton = $container.find('.sd_message_gen');
@@ -1107,34 +1119,76 @@ function injectSwarmUIButtons() {
         }
     });
 }
-
-function createMessageDropdownMenu(messageId) {
-    return `
-        <div class="swarm-message-dropdown" data-message-id="${messageId}">
-            <div class="swarm-dropdown-item" data-action="generate_image" data-message-id="${messageId}">
+function createSwarmMenu(isPerMessage = false) {
+    const menuHtml = `
+        <div class="swarm-dropdown-menu">
+            <div class="swarm-menu-item generate-image" data-action="generate-image">
                 <i class="fa-solid fa-wand-magic-sparkles"></i>
                 <span>Generate Image (LLM)</span>
             </div>
-            <div class="swarm-dropdown-item" data-action="generate_image_portrait" data-message-id="${messageId}">
-                <i class="fa-solid fa-wand-magic-sparkles"></i>
-                <span>Generate Portrait (LLM)</span>
+            <div class="swarm-menu-item generate-image-reversed" data-action="generate-image-reversed">
+                <i class="fa-solid fa-rotate-90 fa-wand-magic-sparkles"></i>
+                <span>Generate Image (LLM, Reversed)</span>
             </div>
-            <div class="swarm-dropdown-item" data-action="generate_from_message" data-message-id="${messageId}">
+            <div class="swarm-menu-divider"></div>
+            <div class="swarm-menu-item generate-from-message" data-action="generate-from-message">
                 <i class="fa-solid fa-image"></i>
                 <span>Generate from Message</span>
             </div>
-            <div class="swarm-dropdown-item" data-action="generate_from_message_portrait" data-message-id="${messageId}">
-                <i class="fa-solid fa-image"></i>
-                <span>Portrait from Message</span>
+            <div class="swarm-menu-item generate-from-message-reversed" data-action="generate-from-message-reversed">
+                <i class="fa-solid fa-rotate-90 fa-image"></i>
+                <span>Generate from Message (Reversed)</span>
             </div>
-            <div class="swarm-dropdown-divider"></div>
-            <div class="swarm-dropdown-item" data-action="generate_prompt" data-message-id="${messageId}">
+            <div class="swarm-menu-divider"></div>
+            <div class="swarm-menu-item generate-prompt" data-action="generate-prompt">
                 <i class="fa-solid fa-pen-fancy"></i>
                 <span>Generate Prompt Only</span>
             </div>
         </div>
     `;
+    return $(menuHtml);
 }
+
+function handleMenuAction(action, messageIndex = null) {
+    const context = getContext();
+    const targetIndex = messageIndex !== null ? messageIndex : context.chat.length - 1;
+
+    switch (action) {
+        case 'generate-image':
+            if (settings.show_prompt_modal !== false) {
+                generateImageWithModal(targetIndex, false);
+            } else {
+                addToQueue(QUEUE_TYPES.GENERATE_IMAGE, targetIndex, null, false, false);
+                toastr.info('Image generation added to queue');
+            }
+            break;
+
+        case 'generate-image-reversed':
+            if (settings.show_prompt_modal !== false) {
+                generateImageWithModal(targetIndex, true);
+            } else {
+                addToQueue(QUEUE_TYPES.GENERATE_IMAGE_REVERSED, targetIndex, null, false, true);
+                toastr.info('Image generation (reversed) added to queue');
+            }
+            break;
+
+        case 'generate-from-message':
+            addToQueue(QUEUE_TYPES.GENERATE_FROM_MESSAGE, targetIndex, null, false, false);
+            toastr.info('Image generation from message added to queue');
+            break;
+
+        case 'generate-from-message-reversed':
+            addToQueue(QUEUE_TYPES.GENERATE_FROM_MESSAGE_REVERSED, targetIndex, null, false, true);
+            toastr.info('Image generation from message (reversed) added to queue');
+            break;
+
+        case 'generate-prompt':
+            addToQueue(QUEUE_TYPES.GENERATE_PROMPT, targetIndex);
+            toastr.info('Prompt generation added to queue');
+            break;
+    }
+}
+
 
 function observeForNewMessages() {
     const observer = new MutationObserver(function (mutations) {
@@ -1349,7 +1403,7 @@ class SwarmPromptModal {
     }
 }
 
-async function generateImageWithModal(upToMessageIndex = null, swapDimensions = false) {
+async function generateImageWithModal(upToMessageIndex = null, reverseDimensions = false) {
     try {
         const imagePrompt = await generateImagePromptFromChat(upToMessageIndex);
 
@@ -1358,8 +1412,9 @@ async function generateImageWithModal(upToMessageIndex = null, swapDimensions = 
         }
 
         promptModal.onGenerate = async (finalPrompt) => {
-            await addToQueue('generate_image', upToMessageIndex, finalPrompt, true, swapDimensions);
-            toastr.success(`Custom prompt ${swapDimensions ? 'portrait' : ''} image generation added to queue`);
+            const queueType = reverseDimensions ? QUEUE_TYPES.GENERATE_IMAGE_REVERSED : QUEUE_TYPES.GENERATE_IMAGE;
+            await addToQueue(queueType, upToMessageIndex, finalPrompt, true, reverseDimensions);
+            toastr.success(`Custom prompt image generation${reverseDimensions ? ' (reversed)' : ''} added to queue`);
         };
 
         promptModal.onCancel = () => {
@@ -1373,7 +1428,11 @@ async function generateImageWithModal(upToMessageIndex = null, swapDimensions = 
     }
 }
 
-async function swarmMessageGenerateImageWithModal(messageId, swapDimensions = false) {
+async function swarmMessageGenerateImageWithModal(e) {
+    const $icon = $(e.currentTarget);
+    const $mes = $icon.closest('.mes');
+    const messageId = parseInt($mes.attr('mesid'));
+
     try {
         const imagePrompt = await generateImagePromptFromChat(messageId);
 
@@ -1382,8 +1441,8 @@ async function swarmMessageGenerateImageWithModal(messageId, swapDimensions = fa
         }
 
         promptModal.onGenerate = async (finalPrompt) => {
-            await addToQueue('generate_image', messageId, finalPrompt, true, swapDimensions);
-            toastr.success(`Custom prompt ${swapDimensions ? 'portrait' : ''} image generation added to queue`);
+            await addToQueue('generate_image', messageId, finalPrompt, true);
+            toastr.success('Custom prompt image generation added to queue');
         };
 
         promptModal.onCancel = () => {
@@ -1428,118 +1487,65 @@ jQuery(async () => {
         `;
         $("body").append(queueHtml);
 
-        // Main dropdown toggle
+        // Main menu button handler
         $(document).on('click', '#swarm_menu_button', function (e) {
             e.stopPropagation();
-            $('#swarm_dropdown_menu').toggle();
-        });
+            const $button = $(this);
+            let $menu = $button.find('.swarm-dropdown-menu');
 
-        // Main dropdown item click
-        $(document).on('click', '#swarm_dropdown_menu .swarm-dropdown-item', async function (e) {
-            e.stopPropagation();
-            const action = $(this).data('action');
-            $('#swarm_dropdown_menu').hide();
+            // Close any other open menus
+            $('.swarm-dropdown-menu').not($menu).removeClass('active');
 
-            const context = getContext();
-            const latestMessageIndex = context.chat.length - 1;
-
-            switch (action) {
-                case 'generate_image':
-                    if (settings.show_prompt_modal !== false) {
-                        generateImageWithModal(latestMessageIndex, false);
-                    } else {
-                        await addToQueue('generate_image', latestMessageIndex, null, false, false);
-                        toastr.info('Image generation added to queue');
-                    }
-                    break;
-                case 'generate_image_portrait':
-                    if (settings.show_prompt_modal !== false) {
-                        generateImageWithModal(latestMessageIndex, true);
-                    } else {
-                        await addToQueue('generate_image', latestMessageIndex, null, false, true);
-                        toastr.info('Portrait image generation added to queue');
-                    }
-                    break;
-                case 'generate_from_message':
-                    await addToQueue('generate_from_message', latestMessageIndex, null, false, false);
-                    toastr.info('Image generation from message added to queue');
-                    break;
-                case 'generate_from_message_portrait':
-                    await addToQueue('generate_from_message', latestMessageIndex, null, false, true);
-                    toastr.info('Portrait generation from message added to queue');
-                    break;
-                case 'generate_prompt':
-                    await addToQueue('generate_prompt', latestMessageIndex);
-                    toastr.info('Prompt generation added to queue');
-                    break;
+            if ($menu.length === 0) {
+                $menu = createSwarmMenu(false);
+                $button.append($menu);
             }
+
+            $menu.toggleClass('active');
         });
 
-        // Message dropdown toggle
-        $(document).on('click', '.swarm_mes_dropdown_toggle', function (e) {
+        // Per-message menu button handler
+        $(document).on('click', '.swarm_mes_menu_button', function (e) {
             e.stopPropagation();
             const $button = $(this);
             const $mes = $button.closest('.mes');
             const messageId = parseInt($mes.attr('mesid'));
 
-            // Close other dropdowns
-            $('.swarm-message-dropdown').not(`[data-message-id="${messageId}"]`).remove();
+            let $menu = $button.find('.swarm-dropdown-menu');
 
-            // Check if dropdown exists
-            let $dropdown = $button.find('.swarm-message-dropdown');
-            if ($dropdown.length === 0) {
-                // Create dropdown
-                $button.append(createMessageDropdownMenu(messageId));
-                $dropdown = $button.find('.swarm-message-dropdown');
+            // Close any other open menus
+            $('.swarm-dropdown-menu').not($menu).removeClass('active');
+
+            if ($menu.length === 0) {
+                $menu = createSwarmMenu(true);
+                $button.append($menu);
             }
 
-            $dropdown.toggleClass('active');
+            $menu.toggleClass('active');
+
+            // Store message ID for this menu
+            $menu.data('message-id', messageId);
         });
 
-        // Message dropdown item click
-        $(document).on('click', '.swarm-message-dropdown .swarm-dropdown-item', async function (e) {
+        // Menu item click handler
+        $(document).on('click', '.swarm-menu-item', function (e) {
             e.stopPropagation();
-            const action = $(this).data('action');
-            const messageId = parseInt($(this).data('message-id'));
+            const $item = $(this);
+            const action = $item.data('action');
+            const $menu = $item.closest('.swarm-dropdown-menu');
+            const messageId = $menu.data('message-id');
 
-            $('.swarm-message-dropdown').removeClass('active').remove();
+            handleMenuAction(action, messageId);
 
-            switch (action) {
-                case 'generate_image':
-                    if (settings.show_prompt_modal !== false) {
-                        swarmMessageGenerateImageWithModal(messageId, false);
-                    } else {
-                        await addToQueue('generate_image', messageId, null, false, false);
-                        toastr.info('Image generation added to queue');
-                    }
-                    break;
-                case 'generate_image_portrait':
-                    if (settings.show_prompt_modal !== false) {
-                        swarmMessageGenerateImageWithModal(messageId, true);
-                    } else {
-                        await addToQueue('generate_image', messageId, null, false, true);
-                        toastr.info('Portrait image generation added to queue');
-                    }
-                    break;
-                case 'generate_from_message':
-                    await addToQueue('generate_from_message', messageId, null, false, false);
-                    toastr.info('Image generation from message added to queue');
-                    break;
-                case 'generate_from_message_portrait':
-                    await addToQueue('generate_from_message', messageId, null, false, true);
-                    toastr.info('Portrait generation from message added to queue');
-                    break;
-                case 'generate_prompt':
-                    await addToQueue('generate_prompt', messageId);
-                    toastr.info('Prompt generation added to queue');
-                    break;
-            }
+            // Close menu
+            $menu.removeClass('active');
         });
 
-        // Close dropdowns when clicking outside
-        $(document).on('click', function () {
-            $('#swarm_dropdown_menu').hide();
-            $('.swarm-message-dropdown').removeClass('active').remove();
+        // Close menus when clicking outside
+        $(document).on('click', function (e) {
+            if (!$(e.target).closest('.swarm-menu-container, .swarm_mes_menu_button').length) {
+                $('.swarm-dropdown-menu').removeClass('active');
+            }
         });
 
         $(document).on('click', '.swarm-queue-cancel', (e) => {
