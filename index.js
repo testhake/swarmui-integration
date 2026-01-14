@@ -1108,7 +1108,7 @@ function injectSwarmUIButtons() {
         }
 
         const swarmButton = `
-            <div title="SwarmUI Image Generation" class="mes_button swarm_mes_menu_button swarm_mes_button fa-solid fa-wand-magic-sparkles" data-i18n="[title]SwarmUI Image Generation"></div>
+            <div class="mes_button swarm_mes_menu_button fa-solid fa-wand-magic-sparkles" data-swarm-menu-btn="true"></div>
         `;
 
         const $sdButton = $container.find('.sd_message_gen');
@@ -1521,82 +1521,99 @@ jQuery(async () => {
         `;
         $("body").append(queueHtml);
 
-        // Global state for menu management
+        console.log('[swarmUI-integration] Setting up event handlers...');
+
+        // Track open menus
         let currentOpenMenu = null;
 
         function closeAllMenus() {
-            $('.swarm-dropdown-menu').removeClass('active').css('display', 'none');
+            $('.swarm-dropdown-menu').removeClass('active');
             currentOpenMenu = null;
         }
 
-        function toggleMenu($button, messageId = null) {
-            let $menu = $button.children('.swarm-dropdown-menu');
-
-            // If clicking the same button, close it
-            if (currentOpenMenu && currentOpenMenu[0] === $menu[0]) {
-                closeAllMenus();
-                return;
-            }
-
-            // Close any other open menu
+        function openMenu($button, messageId = null) {
+            // Close any existing menus
             closeAllMenus();
 
-            // Create menu if it doesn't exist
+            // Find or create menu
+            let $menu = $button.find('.swarm-dropdown-menu');
             if ($menu.length === 0) {
                 $menu = createSwarmMenu(messageId !== null);
                 $button.append($menu);
+                console.log('[swarmUI-integration] Created new menu');
             }
 
-            // Store message ID if provided
+            // Store message ID
             if (messageId !== null) {
-                $menu.attr('data-message-id', messageId);
+                $menu.data('message-id', messageId);
             }
 
-            // Open this menu
+            // Open menu
             $menu.addClass('active');
             currentOpenMenu = $menu;
+            console.log('[swarmUI-integration] Opened menu');
         }
 
-        // Main button click
+        // Use event delegation on document for main button
         $(document).on('click', '#swarm_menu_button', function (e) {
+            console.log('[swarmUI-integration] Main button clicked');
             e.preventDefault();
             e.stopPropagation();
-            e.stopImmediatePropagation();
-            toggleMenu($(this), null);
-            return false;
+
+            const $button = $(this);
+            const $existingMenu = $button.find('.swarm-dropdown-menu');
+
+            // If menu exists and is open, close it
+            if ($existingMenu.length > 0 && $existingMenu.hasClass('active')) {
+                console.log('[swarmUI-integration] Closing existing menu');
+                closeAllMenus();
+            } else {
+                // Open menu
+                console.log('[swarmUI-integration] Opening menu');
+                openMenu($button, null);
+            }
         });
 
-        // Per-message button click
+        // Per-message button handler with delegation
         $(document).on('click', '.swarm_mes_menu_button', function (e) {
+            console.log('[swarmUI-integration] Message button clicked');
             e.preventDefault();
             e.stopPropagation();
-            e.stopImmediatePropagation();
 
-            const $mes = $(this).closest('.mes');
+            const $button = $(this);
+            const $mes = $button.closest('.mes');
             const messageId = parseInt($mes.attr('mesid'));
-            toggleMenu($(this), messageId);
-            return false;
+            const $existingMenu = $button.find('.swarm-dropdown-menu');
+
+            // If menu exists and is open, close it
+            if ($existingMenu.length > 0 && $existingMenu.hasClass('active')) {
+                console.log('[swarmUI-integration] Closing existing message menu');
+                closeAllMenus();
+            } else {
+                // Open menu
+                console.log('[swarmUI-integration] Opening message menu for message:', messageId);
+                openMenu($button, messageId);
+            }
         });
 
-        // Menu item click
+        // Menu item click handler
         $(document).on('click', '.swarm-menu-item', function (e) {
+            console.log('[swarmUI-integration] Menu item clicked');
             e.preventDefault();
             e.stopPropagation();
-            e.stopImmediatePropagation();
 
-            const action = $(this).attr('data-action');
-            const $menu = $(this).closest('.swarm-dropdown-menu');
-            const messageId = $menu.attr('data-message-id');
-            const numericMessageId = messageId ? parseInt(messageId) : null;
+            const $item = $(this);
+            const action = $item.data('action');
+            const $menu = $item.closest('.swarm-dropdown-menu');
+            const messageId = $menu.data('message-id');
 
+            console.log('[swarmUI-integration] Action:', action, 'MessageId:', messageId);
+
+            // Close menu
             closeAllMenus();
 
-            // Small delay to ensure menu closes before action
-            setTimeout(() => {
-                handleMenuAction(action, numericMessageId);
-            }, 50);
-
-            return false;
+            // Execute action
+            handleMenuAction(action, messageId);
         });
 
         // Click outside to close
@@ -1611,7 +1628,7 @@ jQuery(async () => {
 
         // Escape key to close
         $(document).on('keydown', function (e) {
-            if (e.key === 'Escape' && currentOpenMenu) {
+            if (e.key === 'Escape') {
                 closeAllMenus();
             }
         });
@@ -1652,7 +1669,16 @@ jQuery(async () => {
 
         await loadSettings();
 
-        console.log('[swarmUI-integration] Extension initialized successfully with queue system');
+        // Verify button exists
+        setTimeout(() => {
+            const $btn = $('#swarm_menu_button');
+            console.log('[swarmUI-integration] Button found:', $btn.length > 0);
+            if ($btn.length > 0) {
+                console.log('[swarmUI-integration] Button element:', $btn[0]);
+            }
+        }, 500);
+
+        console.log('[swarmUI-integration] Extension initialized successfully');
     } catch (error) {
         console.error('[swarmUI-integration] Failed to initialize extension:', error);
     }
