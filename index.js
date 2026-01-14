@@ -74,7 +74,22 @@ class QueueItem {
         return this.messageIndex;
     }
 }
+// Dropdown management
+function closeAllDropdowns() {
+    $('.swarm-dropdown-menu').removeClass('show');
+    $('.swarm_mes_dropdown').removeClass('show');
+}
 
+function toggleDropdown($trigger) {
+    const $dropdown = $trigger.siblings('.swarm-dropdown-menu, .swarm_mes_dropdown');
+    const isOpen = $dropdown.hasClass('show');
+
+    closeAllDropdowns();
+
+    if (!isOpen) {
+        $dropdown.addClass('show');
+    }
+}
 async function addToQueue(type, messageIndex = null, prompt = null, customPrompt = false, reverseDimensions = false) {
     let savedParams = null;
     try {
@@ -1459,8 +1474,30 @@ jQuery(async () => {
         `;
         $("body").append(queueHtml);
 
+        // Dropdown toggle handlers
+        $(document).on('click', '#swarm_generate_button_container', function (e) {
+            if (!$(e.target).closest('.swarm-dropdown-item').length) {
+                e.stopPropagation();
+                toggleDropdown($(this));
+            }
+        });
+
+        $(document).on('click', '.swarm_mes_button_trigger', function (e) {
+            e.stopPropagation();
+            toggleDropdown($(this));
+        });
+
+        // Close dropdowns when clicking outside
+        $(document).on('click', function (e) {
+            if (!$(e.target).closest('.swarm-dropdown-container, .swarm_mes_button_container').length) {
+                closeAllDropdowns();
+            }
+        });
+
+        // Dropdown action handlers
         $(document).on('click', '.swarm-dropdown-item', async function (e) {
             e.stopPropagation();
+            closeAllDropdowns();
             const action = $(this).data('action');
             const context = getContext();
             const latestMessageIndex = context.chat.length - 1;
@@ -1469,18 +1506,14 @@ jQuery(async () => {
 
         $(document).on('click', '.swarm_mes_dropdown_item', async function (e) {
             e.stopPropagation();
+            closeAllDropdowns();
             const action = $(this).data('action');
             const $mes = $(this).closest('.mes');
             const messageId = parseInt($mes.attr('mesid'));
             await handleSwarmDropdownAction(action, messageId);
         });
 
-        $(document).on('click', '.swarm-queue-remove', (e) => {
-            const itemId = parseFloat($(e.target).closest('.swarm-queue-remove').data('item-id'));
-            removeFromQueue(itemId);
-            toastr.info('Item removed from queue');
-        });
-
+        // Queue management handlers
         $(document).on('click', '.swarm-queue-cancel', (e) => {
             const itemId = parseFloat($(e.target).closest('.swarm-queue-cancel').data('item-id'));
             cancelQueueItem(itemId);
