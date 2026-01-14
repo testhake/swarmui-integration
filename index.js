@@ -1112,24 +1112,24 @@ function createMessageDropdownMenu(messageId) {
     return `
         <div class="swarm-message-dropdown" data-message-id="${messageId}">
             <div class="swarm-dropdown-item" data-action="generate_image" data-message-id="${messageId}">
-                <i class="fa-solid fa-wand-magic-sparkles swarm-icon-generate"></i>
-                <span>Generate Image (LLM Prompt)</span>
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span>Generate Image (LLM)</span>
             </div>
             <div class="swarm-dropdown-item" data-action="generate_image_portrait" data-message-id="${messageId}">
-                <i class="fa-solid fa-wand-magic-sparkles swarm-icon-portrait"></i>
-                <span>Generate Portrait (LLM Prompt)</span>
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span>Generate Portrait (LLM)</span>
             </div>
             <div class="swarm-dropdown-item" data-action="generate_from_message" data-message-id="${messageId}">
-                <i class="fa-solid fa-image swarm-icon-from-message"></i>
-                <span>Generate from This Message</span>
+                <i class="fa-solid fa-image"></i>
+                <span>Generate from Message</span>
             </div>
             <div class="swarm-dropdown-item" data-action="generate_from_message_portrait" data-message-id="${messageId}">
-                <i class="fa-solid fa-image swarm-icon-from-message-portrait"></i>
-                <span>Generate Portrait from Message</span>
+                <i class="fa-solid fa-image"></i>
+                <span>Portrait from Message</span>
             </div>
             <div class="swarm-dropdown-divider"></div>
             <div class="swarm-dropdown-item" data-action="generate_prompt" data-message-id="${messageId}">
-                <i class="fa-solid fa-pen-fancy swarm-icon-prompt"></i>
+                <i class="fa-solid fa-pen-fancy"></i>
                 <span>Generate Prompt Only</span>
             </div>
         </div>
