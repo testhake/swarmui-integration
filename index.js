@@ -1112,9 +1112,7 @@ function injectSwarmUIButtons() {
         }
 
         const swarmButtons = `
-            <div title="SwarmUI: Generate Image (LLM Prompt)" class="mes_button swarm_mes_button swarm_mes_gen_image fa-solid fa-wand-magic-sparkles" data-i18n="[title]SwarmUI: Generate Image (LLM Prompt)"></div>
-            <div title="SwarmUI: Generate Prompt Only" class="mes_button swarm_mes_button swarm_mes_gen_prompt fa-solid fa-pen-fancy" data-i18n="[title]SwarmUI: Generate Prompt Only"></div>
-            <div title="SwarmUI: Generate Image from Message" class="mes_button swarm_mes_button swarm_mes_gen_from_msg fa-solid fa-image" data-i18n="[title]SwarmUI: Generate Image from Message"></div>
+            <div title="SwarmUI Image Generation" class="mes_button swarm_mes_button swarm_mes_gen_dropdown fa-solid fa-wand-magic-sparkles" data-i18n="[title]SwarmUI Image Generation"></div>
         `;
 
         const $sdButton = $container.find('.sd_message_gen');
@@ -1124,6 +1122,140 @@ function injectSwarmUIButtons() {
             $container.prepend(swarmButtons);
         }
     });
+}
+
+function showMessageDropdown(e) {
+    e.stopPropagation();
+
+    // Close any existing dropdowns
+    $('.swarm-message-dropdown').remove();
+
+    const $button = $(e.currentTarget);
+    const $mes = $button.closest('.mes');
+    const messageId = parseInt($mes.attr('mesid'));
+
+    const dropdown = $(`
+        <div class="swarm-message-dropdown">
+            <div class="swarm-dropdown-item" data-action="generate_image" data-message-id="${messageId}">
+                <i class="fa-solid fa-wand-magic-sparkles swarm-icon-magic"></i>
+                <span>Generate Image (LLM Prompt)</span>
+            </div>
+            <div class="swarm-dropdown-item" data-action="generate_image_rotated" data-message-id="${messageId}">
+                <i class="fa-solid fa-wand-magic-sparkles swarm-icon-magic"></i>
+                <i class="fa-solid fa-arrows-rotate swarm-icon-rotate"></i>
+                <span>Generate Image (Rotated)</span>
+            </div>
+            <div class="swarm-dropdown-divider"></div>
+            <div class="swarm-dropdown-item" data-action="generate_from_message" data-message-id="${messageId}">
+                <i class="fa-solid fa-image swarm-icon-image"></i>
+                <span>From This Message</span>
+            </div>
+            <div class="swarm-dropdown-item" data-action="generate_from_message_rotated" data-message-id="${messageId}">
+                <i class="fa-solid fa-image swarm-icon-image"></i>
+                <i class="fa-solid fa-arrows-rotate swarm-icon-rotate"></i>
+                <span>From This Message (Rotated)</span>
+            </div>
+            <div class="swarm-dropdown-divider"></div>
+            <div class="swarm-dropdown-item" data-action="generate_prompt" data-message-id="${messageId}">
+                <i class="fa-solid fa-pen-fancy swarm-icon-prompt"></i>
+                <span>Generate Prompt Only</span>
+            </div>
+        </div>
+    `);
+
+    $('body').append(dropdown);
+
+    // Position dropdown
+    const buttonOffset = $button.offset();
+    const buttonHeight = $button.outerHeight();
+    const dropdownHeight = dropdown.outerHeight();
+    const dropdownWidth = dropdown.outerWidth();
+
+    // Position above button, centered
+    const top = buttonOffset.top - dropdownHeight - 8;
+    const left = buttonOffset.left - (dropdownWidth / 2) + ($button.outerWidth() / 2);
+
+    dropdown.css({
+        top: `${top}px`,
+        left: `${left}px`,
+        display: 'block'
+    });
+
+    // Add arrow pointing down
+    dropdown.append(`
+        <style>
+            .swarm-message-dropdown::before {
+                content: '';
+                position: absolute;
+                top: 100%;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 0;
+                height: 0;
+                border-left: 10px solid transparent;
+                border-right: 10px solid transparent;
+                border-top: 10px solid var(--SmartThemeBorderColor, #444);
+            }
+            .swarm-message-dropdown::after {
+                content: '';
+                position: absolute;
+                top: 100%;
+                left: 50%;
+                transform: translateX(-50%) translateY(-3px);
+                width: 0;
+                height: 0;
+                border-left: 9px solid transparent;
+                border-right: 9px solid transparent;
+                border-top: 9px solid var(--SmartThemeBlurTintColor, #1a1a1a);
+            }
+        </style>
+    `);
+
+    // Handle item clicks
+    dropdown.find('.swarm-dropdown-item').on('click', async function (e) {
+        e.stopPropagation();
+        const action = $(this).data('action');
+        const msgId = $(this).data('message-id');
+
+        dropdown.remove();
+
+        await handleDropdownAction(action, msgId);
+    });
+
+    // Close on outside click
+    setTimeout(() => {
+        $(document).one('click', () => {
+            dropdown.remove();
+        });
+    }, 10);
+}
+
+async function handleDropdownAction(action, messageId) {
+    const context = getContext();
+    const isRotated = action.includes('rotated');
+
+    switch (action) {
+        case 'generate_image':
+        case 'generate_image_rotated':
+            if (settings.show_prompt_modal !== false) {
+                await swarmMessageGenerateImageWithModal({ currentTarget: $(`[mesid="${messageId}"]`) }, isRotated);
+            } else {
+                await addToQueue('generate_image', messageId, null, false, null, isRotated);
+                toastr.info(`Image generation added to queue${isRotated ? ' (rotated)' : ''}`);
+            }
+            break;
+
+        case 'generate_prompt':
+            await addToQueue('generate_prompt', messageId);
+            toastr.info('Prompt generation added to queue');
+            break;
+
+        case 'generate_from_message':
+        case 'generate_from_message_rotated':
+            await addToQueue('generate_from_message', messageId, null, false, null, isRotated);
+            toastr.info(`Image generation from message added to queue${isRotated ? ' (rotated)' : ''}`);
+            break;
+    }
 }
 
 function observeForNewMessages() {
@@ -1446,8 +1578,8 @@ jQuery(async () => {
             }
         });
 
-        // Handle dropdown item clicks
-        $(document).on('click', '.swarm-dropdown-item', async function (e) {
+        // Handle main dropdown item clicks
+        $(document).on('click', '#swarm_dropdown_menu .swarm-dropdown-item', async function (e) {
             e.stopPropagation();
             const action = $(this).data('action');
             const context = getContext();
@@ -1456,35 +1588,11 @@ jQuery(async () => {
             $('#swarm_dropdown_menu').fadeOut(150);
             dropdownOpen = false;
 
-            const isRotated = action.includes('rotated');
-
-            switch (action) {
-                case 'generate_image':
-                case 'generate_image_rotated':
-                    if (settings.show_prompt_modal !== false) {
-                        generateImageWithModal(latestMessageIndex, isRotated);
-                    } else {
-                        await addToQueue('generate_image', latestMessageIndex, null, false, null, isRotated);
-                        toastr.info(`Image generation added to queue${isRotated ? ' (rotated)' : ''}`);
-                    }
-                    break;
-
-                case 'generate_prompt':
-                    await addToQueue('generate_prompt', latestMessageIndex);
-                    toastr.info('Prompt generation added to queue');
-                    break;
-
-                case 'generate_from_message':
-                case 'generate_from_message_rotated':
-                    await addToQueue('generate_from_message', latestMessageIndex, null, false, null, isRotated);
-                    toastr.info(`Image generation from message added to queue${isRotated ? ' (rotated)' : ''}`);
-                    break;
-            }
+            await handleDropdownAction(action, latestMessageIndex);
         });
 
-        $(document).on('click', '.swarm_mes_gen_image', swarmMessageGenerateImage);
-        $(document).on('click', '.swarm_mes_gen_prompt', swarmMessageGeneratePrompt);
-        $(document).on('click', '.swarm_mes_gen_from_msg', swarmMessageGenerateFromMessage);
+        // Handle message dropdown button clicks
+        $(document).on('click', '.swarm_mes_gen_dropdown', showMessageDropdown);
 
         $(document).on('click', '.swarm-queue-remove', (e) => {
             const itemId = parseFloat($(e.target).closest('.swarm-queue-remove').data('item-id'));

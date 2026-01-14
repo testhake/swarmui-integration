@@ -585,60 +585,113 @@
     }
 
     .swarm-dropdown-menu {
+        display: none;
         position: absolute;
-        bottom: 100%;
-        left: 0;
-        margin-bottom: 5px;
-        background: var(--SmartThemeBodyColor, #222);
-        border: 1px solid var(--SmartThemeBorderColor, #444);
-        border-radius: 6px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        min-width: 240px;
-        z-index: 1000;
-        padding: 4px 0;
+        bottom: calc(100% + 8px);
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--SmartThemeBlurTintColor, #1a1a1a);
+        border: 2px solid var(--SmartThemeBorderColor, #444);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        min-width: 280px;
+        z-index: 10000;
+        padding: 8px 0;
+        backdrop-filter: blur(10px);
     }
+
+        .swarm-dropdown-menu::before {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-top: 10px solid var(--SmartThemeBorderColor, #444);
+        }
+
+        .swarm-dropdown-menu::after {
+            content: '';
+            position: absolute;
+            bottom: -7px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 9px solid transparent;
+            border-right: 9px solid transparent;
+            border-top: 9px solid var(--SmartThemeBlurTintColor, #1a1a1a);
+        }
 
     .swarm-dropdown-item {
         display: flex;
         align-items: center;
-        gap: 10px;
-        padding: 10px 15px;
+        gap: 12px;
+        padding: 12px 18px;
         cursor: pointer;
-        transition: background-color 0.2s;
+        transition: all 0.2s;
         color: var(--SmartThemeQuoteColor, #fff);
-        font-size: 13px;
+        font-size: 14px;
+        font-weight: 500;
+        user-select: none;
     }
 
         .swarm-dropdown-item:hover {
-            background: var(--SmartThemeBlurTintColor, #333);
+            background: var(--SmartThemeBodyColor, #2a2a2a);
+        }
+
+        .swarm-dropdown-item:active {
+            transform: scale(0.98);
         }
 
         .swarm-dropdown-item i {
-            width: 16px;
+            font-size: 16px;
+            width: 18px;
             text-align: center;
-            font-size: 14px;
         }
 
-            .swarm-dropdown-item i:first-child {
+            .swarm-dropdown-item i.swarm-icon-magic {
                 color: #dc3545;
             }
 
-        .swarm-dropdown-item[data-action="generate_prompt"] i {
-            color: #ffc107;
-        }
+            .swarm-dropdown-item i.swarm-icon-prompt {
+                color: #ffc107;
+            }
 
-        .swarm-dropdown-item[data-action="generate_from_message"] i:first-child,
-        .swarm-dropdown-item[data-action="generate_from_message_rotated"] i:first-child {
-            color: #28a745;
-        }
+            .swarm-dropdown-item i.swarm-icon-image {
+                color: #28a745;
+            }
 
-        .swarm-dropdown-item[data-action*="rotated"] i.fa-arrows-rotate {
-            color: #17a2b8;
-        }
+            .swarm-dropdown-item i.swarm-icon-rotate {
+                color: #17a2b8;
+                font-size: 12px;
+                margin-left: -8px;
+            }
 
     .swarm-dropdown-divider {
         height: 1px;
         background: var(--SmartThemeBorderColor, #444);
-        margin: 4px 0;
+        margin: 8px 12px;
+    }
+
+    /* Message button dropdown (appears on hover over messages) */
+    .swarm-message-dropdown {
+        position: absolute;
+        background: var(--SmartThemeBlurTintColor, #1a1a1a);
+        border: 2px solid var(--SmartThemeBorderColor, #444);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        min-width: 280px;
+        z-index: 10000;
+        padding: 8px 0;
+        backdrop-filter: blur(10px);
+        display: none;
+    }
+
+    .swarm_mes_gen_dropdown {
+        color: #dc3545 !important;
     }
 }
