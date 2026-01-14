@@ -578,4 +578,126 @@
     .text-muted {
         color: #6c757d !important;
     }
+
+    /* Dropdown Container */
+    .swarm-dropdown-container {
+        position: relative;
+    }
+
+    .swarm-dropdown-menu {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        background: var(--SmartThemeBodyColor, #222);
+        border: 1px solid var(--SmartThemeBorderColor, #444);
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        z-index: 10000;
+        min-width: 220px;
+        margin-top: 4px;
+        padding: 4px 0;
+    }
+
+    .swarm-dropdown-container:hover .swarm-dropdown-menu {
+        display: block;
+    }
+
+    .swarm-dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 12px;
+        background: none;
+        border: none;
+        color: var(--SmartThemeQuoteColor, #fff);
+        text-align: left;
+        cursor: pointer;
+        font-size: 13px;
+        transition: background-color 0.2s;
+        white-space: nowrap;
+    }
+
+        .swarm-dropdown-item:hover {
+            background: var(--SmartThemeBlurTintColor, #333);
+        }
+
+        .swarm-dropdown-item i {
+            width: 16px;
+            text-align: center;
+            font-size: 12px;
+        }
+
+            .swarm-dropdown-item i.fa-rotate {
+                font-size: 10px;
+                margin-left: -4px;
+            }
+
+    /* Per-message button styling */
+    .swarm_mes_button_container {
+        position: relative;
+        display: inline-block;
+    }
+
+    .swarm_mes_button_trigger {
+        color: #dc3545 !important;
+    }
+
+    .swarm_mes_dropdown {
+        display: none;
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        background: var(--SmartThemeBodyColor, #222);
+        border: 1px solid var(--SmartThemeBorderColor, #444);
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        z-index: 10000;
+        min-width: 220px;
+        margin-bottom: 4px;
+        padding: 4px 0;
+    }
+
+    .swarm_mes_button_container:hover .swarm_mes_dropdown {
+        display: block;
+    }
+
+    .swarm_mes_dropdown_item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 12px;
+        background: none;
+        border: none;
+        color: var(--SmartThemeQuoteColor, #fff);
+        text-align: left;
+        cursor: pointer;
+        font-size: 12px;
+        transition: background-color 0.2s;
+        white-space: nowrap;
+    }
+
+        .swarm_mes_dropdown_item:hover {
+            background: var(--SmartThemeBlurTintColor, #333);
+        }
+
+        .swarm_mes_dropdown_item i {
+            width: 16px;
+            text-align: center;
+            font-size: 11px;
+        }
+
+            .swarm_mes_dropdown_item i.fa-rotate {
+                font-size: 9px;
+                margin-left: -4px;
+            }
+
+    /* Remove old button styles - keep these for backward compatibility but they won't be used */
+    .swarm_mes_gen_image,
+    .swarm_mes_gen_prompt,
+    .swarm_mes_gen_from_msg {
+        display: none;
+    }
 }
