@@ -1541,8 +1541,6 @@ jQuery(async () => {
 
         const buttonHtml = await $.get(`${extensionFolderPath}/button.html`);
         const $sendBut = $("#send_but");
-
-        // Just insert the button directly, no wrapper needed
         $sendBut.before(buttonHtml);
 
         const queueHtml = `
@@ -1566,29 +1564,26 @@ jQuery(async () => {
         `;
         $("body").append(queueHtml);
 
-        // Bind main button to toggle popup
-        $(document).on('click', '#swarm_generate_button', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            toggleSwarmPopup($(this));
-        });
+        // Wait a bit for button to be fully inserted into DOM
+        setTimeout(() => {
+            // Bind main button to toggle popup
+            $(document).on('click', '#swarm_generate_button', function (e) {
+                console.log('[swarmUI-integration] Main button clicked'); // Debug log
+                e.preventDefault();
+                e.stopPropagation();
+                toggleSwarmPopup($(this));
+            });
+        }, 100);
 
         // Bind message buttons to toggle popup
         $(document).on('click', '.swarm_mes_button', function (e) {
+            console.log('[swarmUI-integration] Message button clicked'); // Debug log
             e.preventDefault();
             e.stopPropagation();
             const $mes = $(this).closest('.mes');
             const messageId = parseInt($mes.attr('mesid'));
             toggleSwarmPopup($(this), messageId);
         });
-
-        // Remove old button handlers (no longer needed)
-        // $("#swarm_generate_button").on("click", ...) - REMOVED
-        // $("#swarm_generate_prompt_button").on("click", ...) - REMOVED
-        // $("#swarm_generate_from_message_button").on("click", ...) - REMOVED
-        // $(document).on('click', '.swarm_mes_gen_image', ...) - REMOVED
-        // $(document).on('click', '.swarm_mes_gen_prompt', ...) - REMOVED
-        // $(document).on('click', '.swarm_mes_gen_from_msg', ...) - REMOVED
 
         $(document).on('click', '.swarm-queue-cancel', (e) => {
             const itemId = parseFloat($(e.target).closest('.swarm-queue-cancel').data('item-id'));
