@@ -1120,33 +1120,67 @@ function injectSwarmUIButtons() {
     });
 }
 function createSwarmMenu(isPerMessage = false) {
-    const menuHtml = `
-        <div class="swarm-dropdown-menu">
-            <div class="swarm-menu-item generate-image" data-action="generate-image">
-                <i class="fa-solid fa-wand-magic-sparkles"></i>
-                <span>Generate Image (LLM)</span>
-            </div>
-            <div class="swarm-menu-item generate-image-reversed" data-action="generate-image-reversed">
-                <i class="fa-solid fa-rotate-90 fa-wand-magic-sparkles"></i>
-                <span>Generate Image (LLM, Reversed)</span>
-            </div>
-            <div class="swarm-menu-divider"></div>
-            <div class="swarm-menu-item generate-from-message" data-action="generate-from-message">
-                <i class="fa-solid fa-image"></i>
-                <span>Generate from Message</span>
-            </div>
-            <div class="swarm-menu-item generate-from-message-reversed" data-action="generate-from-message-reversed">
-                <i class="fa-solid fa-rotate-90 fa-image"></i>
-                <span>Generate from Message (Reversed)</span>
-            </div>
-            <div class="swarm-menu-divider"></div>
-            <div class="swarm-menu-item generate-prompt" data-action="generate-prompt">
-                <i class="fa-solid fa-pen-fancy"></i>
-                <span>Generate Prompt Only</span>
-            </div>
-        </div>
-    `;
-    return $(menuHtml);
+    const $menu = $('<div>', {
+        'class': 'swarm-dropdown-menu',
+        'css': {
+            'position': 'absolute',
+            'display': 'none',
+            'z-index': '99999'
+        }
+    });
+
+    const menuItems = [
+        {
+            class: 'generate-image',
+            action: 'generate-image',
+            icon: 'fa-solid fa-wand-magic-sparkles',
+            text: 'Generate Image (LLM)'
+        },
+        {
+            class: 'generate-image-reversed',
+            action: 'generate-image-reversed',
+            icon: 'fa-solid fa-rotate-90 fa-wand-magic-sparkles',
+            text: 'Generate Image (LLM, Reversed)'
+        },
+        { divider: true },
+        {
+            class: 'generate-from-message',
+            action: 'generate-from-message',
+            icon: 'fa-solid fa-image',
+            text: 'Generate from Message'
+        },
+        {
+            class: 'generate-from-message-reversed',
+            action: 'generate-from-message-reversed',
+            icon: 'fa-solid fa-rotate-90 fa-image',
+            text: 'Generate from Message (Reversed)'
+        },
+        { divider: true },
+        {
+            class: 'generate-prompt',
+            action: 'generate-prompt',
+            icon: 'fa-solid fa-pen-fancy',
+            text: 'Generate Prompt Only'
+        }
+    ];
+
+    menuItems.forEach(item => {
+        if (item.divider) {
+            $menu.append($('<div>', { 'class': 'swarm-menu-divider' }));
+        } else {
+            const $item = $('<div>', {
+                'class': `swarm-menu-item ${item.class}`,
+                'data-action': item.action
+            });
+
+            $item.append($('<i>', { 'class': item.icon }));
+            $item.append($('<span>').text(item.text));
+
+            $menu.append($item);
+        }
+    });
+
+    return $menu;
 }
 
 function handleMenuAction(action, messageIndex = null) {
@@ -1487,96 +1521,98 @@ jQuery(async () => {
         `;
         $("body").append(queueHtml);
 
-        // Close all menus helper
-        function closeAllSwarmMenus() {
-            $('.swarm-dropdown-menu').removeClass('active');
+        // Global state for menu management
+        let currentOpenMenu = null;
+
+        function closeAllMenus() {
+            $('.swarm-dropdown-menu').removeClass('active').css('display', 'none');
+            currentOpenMenu = null;
         }
 
-        // Main menu button handler
+        function toggleMenu($button, messageId = null) {
+            let $menu = $button.children('.swarm-dropdown-menu');
+
+            // If clicking the same button, close it
+            if (currentOpenMenu && currentOpenMenu[0] === $menu[0]) {
+                closeAllMenus();
+                return;
+            }
+
+            // Close any other open menu
+            closeAllMenus();
+
+            // Create menu if it doesn't exist
+            if ($menu.length === 0) {
+                $menu = createSwarmMenu(messageId !== null);
+                $button.append($menu);
+            }
+
+            // Store message ID if provided
+            if (messageId !== null) {
+                $menu.attr('data-message-id', messageId);
+            }
+
+            // Open this menu
+            $menu.addClass('active');
+            currentOpenMenu = $menu;
+        }
+
+        // Main button click
         $(document).on('click', '#swarm_menu_button', function (e) {
             e.preventDefault();
             e.stopPropagation();
-
-            const $button = $(this);
-            let $menu = $button.find('.swarm-dropdown-menu');
-            const isCurrentlyActive = $menu.hasClass('active');
-
-            // Close all menus first
-            closeAllSwarmMenus();
-
-            // If this menu wasn't active, open it
-            if (!isCurrentlyActive) {
-                if ($menu.length === 0) {
-                    $menu = createSwarmMenu(false);
-                    $button.append($menu);
-                }
-                $menu.addClass('active');
-            }
+            e.stopImmediatePropagation();
+            toggleMenu($(this), null);
+            return false;
         });
 
-        // Per-message menu button handler
+        // Per-message button click
         $(document).on('click', '.swarm_mes_menu_button', function (e) {
             e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation();
 
-            const $button = $(this);
-            const $mes = $button.closest('.mes');
+            const $mes = $(this).closest('.mes');
             const messageId = parseInt($mes.attr('mesid'));
-
-            let $menu = $button.find('.swarm-dropdown-menu');
-            const isCurrentlyActive = $menu.hasClass('active');
-
-            // Close all menus first
-            closeAllSwarmMenus();
-
-            // If this menu wasn't active, open it
-            if (!isCurrentlyActive) {
-                if ($menu.length === 0) {
-                    $menu = createSwarmMenu(true);
-                    $button.append($menu);
-                }
-
-                // Store message ID for this menu
-                $menu.data('message-id', messageId);
-                $menu.addClass('active');
-            }
+            toggleMenu($(this), messageId);
+            return false;
         });
 
-        // Menu item click handler
+        // Menu item click
         $(document).on('click', '.swarm-menu-item', function (e) {
             e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation();
 
-            const $item = $(this);
-            const action = $item.data('action');
-            const $menu = $item.closest('.swarm-dropdown-menu');
-            const messageId = $menu.data('message-id');
+            const action = $(this).attr('data-action');
+            const $menu = $(this).closest('.swarm-dropdown-menu');
+            const messageId = $menu.attr('data-message-id');
+            const numericMessageId = messageId ? parseInt(messageId) : null;
 
-            // Close menu immediately
-            closeAllSwarmMenus();
+            closeAllMenus();
 
-            // Handle action after closing
-            handleMenuAction(action, messageId);
+            // Small delay to ensure menu closes before action
+            setTimeout(() => {
+                handleMenuAction(action, numericMessageId);
+            }, 50);
+
+            return false;
         });
 
-        // Close menus when clicking outside
+        // Click outside to close
         $(document).on('click', function (e) {
-            if (!$(e.target).closest('.swarm-menu-container, .swarm_mes_menu_button, .swarm-dropdown-menu').length) {
-                closeAllSwarmMenus();
+            const $target = $(e.target);
+            if (!$target.closest('#swarm_menu_button').length &&
+                !$target.closest('.swarm_mes_menu_button').length &&
+                !$target.closest('.swarm-dropdown-menu').length) {
+                closeAllMenus();
             }
         });
 
-        // Close menus on escape key
+        // Escape key to close
         $(document).on('keydown', function (e) {
-            if (e.key === 'Escape') {
-                closeAllSwarmMenus();
-            }
-        });
-
-        // Prevent menu from closing when clicking inside it (but not on items)
-        $(document).on('click', '.swarm-dropdown-menu', function (e) {
-            if (!$(e.target).closest('.swarm-menu-item').length) {
-                e.stopPropagation();
+            if (e.key === 'Escape' && currentOpenMenu) {
+                closeAllMenus();
             }
         });
 
@@ -1597,7 +1633,7 @@ jQuery(async () => {
             const $toggleBtn = $('#swarm_toggle_queue i');
 
             if ($queueBody.is(':visible')) {
-                $queueBody.hide(); 
+                $queueBody.hide();
                 $toggleBtn.removeClass('fa-chevron-up').addClass('fa-chevron-down');
             } else {
                 $queueBody.show();

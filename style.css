@@ -579,93 +579,104 @@
         color: #6c757d !important;
     }
 
-    /* SwarmUI Menu Styles - Highly specific to avoid inheritance */
-    .swarm-menu-container {
-        position: relative;
-        display: inline-block;
-    }
-
+    /* SwarmUI Menu Styles - Maximum specificity */
+    #swarm_menu_button,
     .swarm_mes_menu_button {
-        position: relative;
-        display: inline-block;
+        position: relative !important;
     }
 
     .swarm-dropdown-menu {
-        position: absolute;
-        bottom: calc(100% + 2px);
-        left: 50%;
-        transform: translateX(-50%);
-        background: var(--SmartThemeBodyColor, #1a1a1a) !important;
-        border: 1px solid var(--SmartThemeBorderColor, #444) !important;
+        position: absolute !important;
+        bottom: calc(100% + 4px) !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        background: #1a1a1a !important;
+        border: 1px solid #3a3a3a !important;
         border-radius: 4px !important;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6) !important;
-        z-index: 10001 !important;
-        min-width: 200px !important;
-        width: max-content !important;
-        max-width: 280px !important;
-        padding: 3px !important;
-        display: none !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.8) !important;
+        z-index: 99999 !important;
+        min-width: 190px !important;
+        width: auto !important;
+        max-width: 250px !important;
+        padding: 4px !important;
         margin: 0 !important;
-        font-size: 11px !important;
-        line-height: 1.2 !important;
-        text-shadow: none !important;
-        font-family: inherit !important;
+        display: none !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        transition: opacity 0.15s ease !important;
     }
 
         .swarm-dropdown-menu.active {
             display: block !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
         }
 
-    /* For per-message menus, position below the button */
-    .swarm_mes_menu_button .swarm-dropdown-menu {
+    /* Position below for per-message buttons */
+    .swarm_mes_menu_button > .swarm-dropdown-menu {
         bottom: auto !important;
-        top: calc(100% + 2px) !important;
+        top: calc(100% + 4px) !important;
     }
 
     .swarm-menu-item {
+        all: unset !important;
         display: flex !important;
         align-items: center !important;
         gap: 8px !important;
-        padding: 6px 10px !important;
+        padding: 5px 8px !important;
+        margin: 1px 0 !important;
         cursor: pointer !important;
         border-radius: 3px !important;
-        transition: background-color 0.15s ease !important;
-        font-size: 11px !important;
-        line-height: 1.2 !important;
-        color: var(--SmartThemeQuoteColor, #e0e0e0) !important;
-        text-shadow: none !important;
+        transition: background-color 0.1s ease !important;
+        background: transparent !important;
+        color: #d0d0d0 !important;
         white-space: nowrap !important;
-        margin: 1px 0 !important;
-        font-weight: 400 !important;
-        text-decoration: none !important;
-        font-family: inherit !important;
+        border: none !important;
         border-left: 2px solid transparent !important;
+        box-sizing: border-box !important;
+        text-decoration: none !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        font-size: 11px !important;
+        font-weight: 400 !important;
+        line-height: 1.3 !important;
+        text-align: left !important;
+        text-shadow: none !important;
     }
 
         .swarm-menu-item:hover {
-            background: rgba(255, 255, 255, 0.08) !important;
+            background: rgba(255, 255, 255, 0.1) !important;
+            color: #ffffff !important;
         }
 
-        .swarm-menu-item i {
-            width: 14px !important;
-            height: 14px !important;
-            text-align: center !important;
+        .swarm-menu-item > i {
+            all: unset !important;
+            width: 12px !important;
+            height: 12px !important;
             font-size: 11px !important;
             display: inline-flex !important;
             align-items: center !important;
             justify-content: center !important;
             flex-shrink: 0 !important;
+            font-family: "Font Awesome 6 Free" !important;
+            font-weight: 900 !important;
+            -webkit-font-smoothing: antialiased !important;
+            font-style: normal !important;
+            font-variant: normal !important;
+            text-rendering: auto !important;
+            line-height: 1 !important;
         }
 
-        .swarm-menu-item span {
+        .swarm-menu-item > span {
+            all: unset !important;
             font-size: 11px !important;
-            line-height: 1.2 !important;
-            text-shadow: none !important;
             font-weight: 400 !important;
+            line-height: 1.3 !important;
             color: inherit !important;
+            text-shadow: none !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
         }
 
-        /* Color coding for menu items */
+        /* Color coding */
         .swarm-menu-item.generate-image {
             border-left-color: #dc3545 !important;
         }
@@ -687,10 +698,10 @@
         }
 
     .swarm-menu-divider {
+        all: unset !important;
+        display: block !important;
         height: 1px !important;
-        background: var(--SmartThemeBorderColor, #444) !important;
+        background: #3a3a3a !important;
         margin: 3px 0 !important;
-        padding: 0 !important;
-        border: none !important;
     }
 }
