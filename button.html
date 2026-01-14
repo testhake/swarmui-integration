@@ -1,28 +1,17 @@
-﻿<div id="swarm_generate_button_container" class="menu_button menu_button_icon swarm-dropdown-container">
-    <div class="swarm-dropdown-trigger">
-        <i class="fa-solid fa-wand-magic-sparkles"></i>
-        <span></span>
-    </div>
-    <div class="swarm-dropdown-menu">
-        <button class="swarm-dropdown-item" data-action="generate_image">
-            <i class="fa-solid fa-wand-magic-sparkles"></i>
-            <span>Generate Image (LLM Prompt)</span>
-        </button>
-        <button class="swarm-dropdown-item" data-action="generate_image_reversed">
-            <i class="fa-solid fa-rotate"></i>
-            <span>Generate Image (Reversed)</span>
-        </button>
-        <button class="swarm-dropdown-item" data-action="generate_prompt">
-            <i class="fa-solid fa-pen-fancy"></i>
-            <span>Generate Prompt Only</span>
-        </button>
-        <button class="swarm-dropdown-item" data-action="generate_from_message">
-            <i class="fa-solid fa-image"></i>
-            <span>Generate from Last Message</span>
-        </button>
-        <button class="swarm-dropdown-item" data-action="generate_from_message_reversed">
-            <i class="fa-solid fa-image fa-rotate"></i>
-            <span>Generate from Last (Reversed)</span>
-        </button>
-    </div>
+﻿<!-- Original button: Generate prompt + image -->
+<div id="swarm_generate_button" class="menu_button menu_button_icon" title="Generate Image with SwarmUI (Prompt + Image)">
+    <i class="fa-solid fa-wand-magic-sparkles"></i>
+    <span></span>
+</div>
+
+<!-- New button: Generate prompt only -->
+<div id="swarm_generate_prompt_button" class="menu_button menu_button_icon" title="Generate Prompt Only">
+    <i class="fa-solid fa-pen-fancy"></i>
+    <span></span>
+</div>
+
+<!-- New button: Generate image from last message -->
+<div id="swarm_generate_from_message_button" class="menu_button menu_button_icon" title="Generate Image from Last Message">
+    <i class="fa-solid fa-image"></i>
+    <span></span>
 </div>
