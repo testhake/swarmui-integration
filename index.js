@@ -23,7 +23,7 @@ let activeGenerationControllers = new Map(); // Track AbortControllers for each 
 let isShiftPressed = false;
 
 class QueueItem {
-    constructor(type, messageIndex, prompt = null, customPrompt = false, savedParams = null) {
+    constructor(type, messageIndex, prompt = null, customPrompt = false, savedParams = null, swapDimensions = false) {
         this.id = Date.now() + Math.random();
         this.type = type;
         this.messageIndex = messageIndex;
