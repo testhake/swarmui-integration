@@ -1597,7 +1597,7 @@ jQuery(async () => {
             const $toggleBtn = $('#swarm_toggle_queue i');
 
             if ($queueBody.is(':visible')) {
-                $queueBody.hide();
+                $queueBody.hide(); 
                 $toggleBtn.removeClass('fa-chevron-up').addClass('fa-chevron-down');
             } else {
                 $queueBody.show();
