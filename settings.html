@@ -5,61 +5,48 @@
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <!-- Connection Settings -->
+
+            <!-- Connection -->
+            <div class="title_restorable" style="margin-top:0;padding-top:0;border-top:none;">
+                <h4>Connection</h4>
+            </div>
+
             <div class="marginBot5">
-                <label for="swarm_url" class="checkbox_label">
-                    <span>SwarmUI Base URL</span>
-                </label>
+                <label for="swarm_url" class="checkbox_label"><span>SwarmUI Base URL</span></label>
                 <input id="swarm_url" class="text_pole" type="text" value="http://localhost:7801" placeholder="http://localhost:7801" />
-                <small class="notes">The base URL of your SwarmUI instance</small>
+                <small class="notes">Base URL of your SwarmUI instance</small>
             </div>
 
             <div class="marginBot10">
-                <label for="swarm_session_id" class="checkbox_label">
-                    <span>Session ID (Optional)</span>
-                </label>
+                <label for="swarm_session_id" class="checkbox_label"><span>Session ID <em>(optional)</em></span></label>
                 <input id="swarm_session_id" class="text_pole" type="text" placeholder="Leave blank to auto-generate" />
-                <small class="notes">Manual session ID override. Leave blank for automatic session management.</small>
+                <small class="notes">Manual session ID override. Blank = automatic.</small>
             </div>
 
             <!-- Prompt Template -->
+            <div class="title_restorable">
+                <h4>Prompt Template</h4>
+            </div>
+
             <div class="marginBot10">
-                <label for="swarm_llm_prompt" class="checkbox_label">
-                    <span>LLM Prompt Template</span>
-                </label>
-                <textarea id="swarm_llm_prompt" class="textarea_compact" rows="6" placeholder="Enter your prompt template...">Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}</textarea>
+                <label for="swarm_llm_prompt" class="checkbox_label"><span>LLM Prompt Template</span></label>
+                <textarea id="swarm_llm_prompt" class="textarea_compact" rows="5"
+                          placeholder="Enter your prompt template...">Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}</textarea>
 
-                <!-- Enhanced Help Section -->
                 <div class="note">
-                    <div class="m-b-1">
-                        <strong>📝 Message Tags:</strong>
-                        <div class="tags-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; font-family: monospace; font-size: 11px;">
-                            <div><code>{all_messages}</code> - All visible messages</div>
-                            <div><code>{previous_messages}</code> - All but last message</div>
-                            <div><code>{previous_messages2}</code> - All but last 2 messages</div>
-                            <div><code>{message_last}</code> - Only the last message</div>
-                            <div><code>{message_beforelast}</code> - Message before last</div>
-                            <div><code>{description}</code> - Alias for {all_messages}</div>
-                            <div><code>{prompt}</code> - Current prompt content</div>
-                        </div>
+                    <strong>📝 Message Tags</strong>
+                    <div class="tags-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0;font-family:monospace;font-size:11px;">
+                        <div><code>{all_messages}</code> All visible msgs</div>
+                        <div><code>{previous_messages}</code> All but last</div>
+                        <div><code>{previous_messages2}</code> All but last 2</div>
+                        <div><code>{message_last}</code> Last message only</div>
+                        <div><code>{message_beforelast}</code> Msg before last</div>
+                        <div><code>{prompt}</code> Preset prompt content</div>
                     </div>
-
-                    <div class="m-b-1">
-                        <strong>🏗️ Structured Format:</strong>
-                        <div style="margin: 8px 0; font-family: monospace; font-size: 11px; background: #f8f9fa; padding: 8px; border-radius: 4px;">
-                            <div><code>[system]Instructions here[/system]</code></div>
-                            <div><code>[user]User content with {all_messages}[/user]</code></div>
-                            <div><code>[assistant]Assistant content[/assistant]</code></div>
-                        </div>
-                    </div>
-
-                    <div>
-                        <strong>💡 Example:</strong>
-                        <div style="font-family: monospace; font-size: 11px; background: #f0f7ff; padding: 8px; border-radius: 4px; margin-top: 4px;">
-                            [system]You are an expert at creating vivid image prompts.[/system]<br>
-                            [user]Based on this conversation: {all_messages}[/user]<br>
-                            [user]Create a detailed visual description focusing on mood and atmosphere.[/user]
-                        </div>
+                    <strong>🏗️ Structured Format</strong>
+                    <div style="margin:5px 0;font-family:monospace;font-size:10px;background:rgba(0,0,0,0.15);padding:6px;border-radius:3px;line-height:1.6;">
+                        <code>[system]Instructions[/system]</code><br>
+                        <code>[user]{all_messages}[/user]</code>
                     </div>
                 </div>
             </div>
@@ -71,10 +58,10 @@
 
             <div class="marginBot5">
                 <label class="checkbox_label" for="swarm_append_prompt">
-                    <input id="swarm_append_prompt" type="checkbox" checked />
-                    <span>Append to existing prompt</span>
+                    <input id="swarm_append_prompt" type="checkbox" />
+                    <span>Append to existing SwarmUI prompt</span>
                 </label>
-                <small class="notes">Add generated text to current SwarmUI prompt instead of replacing it</small>
+                <small class="notes">Prepends generated text to the current SwarmUI prompt</small>
             </div>
 
             <div class="marginBot5">
@@ -82,91 +69,65 @@
                     <input id="swarm_use_raw" type="checkbox" />
                     <span>Use Raw Generation</span>
                 </label>
-                <small class="notes">Bypass system instructions and character card for direct LLM access</small>
+                <small class="notes">Bypass system instructions / character card for direct LLM access</small>
             </div>
 
             <div class="marginBot5">
                 <label class="checkbox_label" for="swarm_use_prompt">
                     <input id="swarm_use_prompt" type="checkbox" />
-                    <span>Use Prompt</span>
+                    <span>Inject preset prompt as <code>{prompt}</code></span>
                 </label>
-                <small class="notes">Use a specific chat completion preset instruction prompt as {prompt} in the LLM Prompt Template</small>
             </div>
 
             <div class="marginBot5">
-                <label for="swarm_prompt_name" class="checkbox_label">
-                    <span>Use Prompt (NAME) (Optional)</span>
-                </label>
-                <input id="swarm_prompt_name" class="text_pole" type="text" value="" placeholder="Leave blank to not use" />
-                <small class="notes">Name of the prompt from Chat Completion Presets to use in {prompt}</small>
+                <label for="swarm_prompt_name" class="checkbox_label"><span>Preset Prompt Name <em>(optional)</em></span></label>
+                <input id="swarm_prompt_name" class="text_pole" type="text" placeholder="Exact name of the preset prompt" />
+                <small class="notes">Name of the Chat Completion Presets prompt to inject as <code>{prompt}</code></small>
             </div>
 
             <div class="marginBot5">
                 <label class="checkbox_label" for="swarm_use_custom_generate_raw">
                     <input id="swarm_use_custom_generate_raw" type="checkbox" />
-                    <span>Use Custom Raw Generation Method</span>
+                    <span>Use Custom Raw Method (Magistral / stop strings)</span>
                 </label>
-                <small class="notes">Custom Raw Generation Method with stopping strings (Magistral)</small>
             </div>
 
             <div class="marginBot5">
-                <label for="swarm_custom_model" class="checkbox_label">
-                    <span>Custom Model (Optional)</span>
-                </label>
-                <input id="swarm_custom_model" class="text_pole" type="text" value="" placeholder="Leave blank to not use" />
-                <small class="notes">Manual model to use override. Leave blank to use current model</small>
+                <label for="swarm_custom_model" class="checkbox_label"><span>Custom Model <em>(optional)</em></span></label>
+                <input id="swarm_custom_model" class="text_pole" type="text" placeholder="Leave blank to use current model" />
             </div>
 
             <div class="marginBot5">
-                <label for="swarm_custom_parameters" class="checkbox_label">
-                    <span>Custom Parameters (Optional)</span>
-                </label>
-                <input id="swarm_custom_parameters" class="text_pole" type="text" value="" placeholder="Leave blank to not use" />
-                <small class="notes">Manual parameters to use override. Leave blank to use current model</small>
+                <label for="swarm_custom_parameters" class="checkbox_label"><span>Custom Parameters <em>(optional)</em></span></label>
+                <input id="swarm_custom_parameters" class="text_pole" type="text" placeholder="Leave blank to use current" />
             </div>
 
-            <div class="marginBot10" id="swarm_message_count_container">
-                <label for="swarm_message_count" class="checkbox_label">
-                    <span>Messages to Include</span>
-                </label>
+            <div class="marginBot10">
+                <label for="swarm_message_count" class="checkbox_label"><span>Messages to Include</span></label>
                 <input id="swarm_message_count" class="text_pole" type="number" min="0" max="50" value="5" />
-                <small class="notes">Number of recent visible messages to include when using Raw Generation (0 = all messages)</small>
+                <small class="notes">Recent visible messages used in Raw Generation (0 = all)</small>
             </div>
 
-            <!-- Button Functions -->
+            <!-- UI Options -->
             <div class="title_restorable">
-                <h4>Button Functions</h4>
+                <h4>UI Options</h4>
             </div>
 
             <div class="marginBot5">
                 <label class="checkbox_label" for="swarm_show_prompt_modal">
                     <input id="swarm_show_prompt_modal" type="checkbox" checked />
-                    <span>Show Prompt Preview Modal</span>
+                    <span>Show Prompt Preview before generating image</span>
                 </label>
-                <small class="notes">Show a preview window to edit/regenerate prompts before image generation</small>
+                <small class="notes">Opens an edit/regenerate dialog before queuing the image</small>
             </div>
 
+            <!-- Button reference -->
             <div class="marginBot10">
-                <div class="notes" style="background: #f8f9fa; padding: 12px; border-radius: 4px; border-left: 4px solid #007bff;">
-                    <div style="margin-bottom: 8px;"><strong>🪄 Generate Image (Magic Wand):</strong> Creates an LLM-generated prompt based on your conversation, then generates the image.</div>
-                    <div style="margin-bottom: 8px;"><strong>✏️ Generate Prompt Only (Pen):</strong> Creates and displays only the LLM-generated prompt without making an image.</div>
-                    <div><strong>🖼️ Image from Message (Image Icon):</strong> Uses the last chat message directly as the image prompt (no LLM processing).</div>
-                </div>
-            </div>
-
-            <!-- Status Info -->
-            <div class="title_restorable">
-                <h4>Status</h4>
-            </div>
-
-            <div class="marginBot10">
-                <div class="flex-container" style="justify-content: space-between; align-items: center;">
-                    <span class="notes">Connection Status:</span>
-                    <span id="swarm_connection_status" class="notes" style="color: #666;">Not tested</span>
-                </div>
-                <div class="flex-container" style="justify-content: space-between; align-items: center; margin-top: 4px;">
-                    <span class="notes">Session ID:</span>
-                    <span id="swarm_current_session" class="notes" style="color: #666; font-family: monospace; font-size: 10px;">Auto-generated</span>
+                <div class="note" style="border-left:3px solid #9d78f0;">
+                    <strong>🪄 Wand (red)</strong> — LLM prompt → image<br>
+                    <strong>✏️ Pen (yellow)</strong> — LLM prompt only (no image)<br>
+                    <strong>🖼️ Image (green)</strong> — Use last message directly as prompt<br>
+                    <strong>⇧ Shift + click</strong> — Swap width ↔ height before generation
                 </div>
             </div>
 

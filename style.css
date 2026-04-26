@@ -1,3 +1,8 @@
+/* ============================================================
+   SwarmUI Integration — Stylesheet
+   ============================================================ */
+
+/* ---- Settings panel ---- */
 #swarm_settings {
     margin-bottom: 1em;
 }
@@ -84,207 +89,49 @@
         flex-wrap: wrap;
     }
 
-#swarm_generate_button {
+/* ---- Toolbar buttons ---- */
+#swarm_generate_button,
+#swarm_generate_from_message_button,
+#swarm_generate_prompt_button {
     display: flex;
     align-items: center;
     gap: 0.5em;
 }
 
-.swarm-progress {
-    color: gray;
-    font-style: italic;
-}
-
-.swarm-modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 10000;
-    backdrop-filter: blur(2px);
-}
-
-.swarm-modal {
-    background: var(--SmartThemeBodyColor, #222);
-    border: 1px solid var(--SmartThemeBorderColor, #444);
-    border-radius: 8px;
-    width: 90%;
-    max-width: 700px;
-    max-height: 90vh;
-    overflow: hidden;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-}
-
-.swarm-modal-header {
-    padding: 15px 20px;
-    border-bottom: 1px solid var(--SmartThemeBorderColor, #444);
-    background: var(--SmartThemeBlurTintColor, #333);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.swarm-modal-title {
-    margin: 0;
-    color: var(--SmartThemeQuoteColor, #fff);
-    font-size: 18px;
-    font-weight: bold;
-    text-shadow: none;
-}
-
-.swarm-modal-close {
-    background: none;
-    border: none;
-    font-size: 24px;
-    color: var(--SmartThemeQuoteColor, #fff);
-    cursor: pointer;
-    padding: 0;
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-    transition: background-color 0.2s;
-}
-
-    .swarm-modal-close:hover {
-        background-color: rgba(255, 255, 255, 0.1);
+    #swarm_generate_button i {
+        color: #dc3545;
     }
 
-.swarm-modal-body {
-    padding: 20px;
-    max-height: calc(90vh - 140px);
-    overflow-y: auto;
-}
-
-.swarm-prompt-textarea {
-    width: 100%;
-    min-height: 200px;
-    max-height: 400px;
-    padding: 12px;
-    border: 1px solid var(--SmartThemeBorderColor, #444);
-    border-radius: 4px;
-    background: var(--SmartThemeBodyColor, #111);
-    color: var(--SmartThemeQuoteColor, #fff);
-    font-family: 'Consolas', 'Monaco', monospace;
-    font-size: 14px;
-    line-height: 1.4;
-    resize: vertical;
-    box-sizing: border-box;
-    text-shadow: none;
-}
-
-    .swarm-prompt-textarea:focus {
-        outline: none;
-        border-color: var(--SmartThemeHighlightColor, #007bff);
-        box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+    #swarm_generate_from_message_button i {
+        color: #28a745;
     }
 
-.swarm-modal-actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 20px;
-    flex-wrap: wrap;
-}
-
-.swarm-btn {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    text-shadow: none;
-    transition: all 0.2s;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-
-    .swarm-btn:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
+    #swarm_generate_prompt_button i {
+        color: #ffc107;
     }
 
-.swarm-btn-primary {
-    background: #007bff;
-    color: white;
-}
-
-    .swarm-btn-primary:hover:not(:disabled) {
-        background: #0056b3;
+    /* Shift-active: swap dimensions indicator */
+    .shift-active i,
+    #swarm_generate_button.shift-active i,
+    #swarm_generate_from_message_button.shift-active i,
+    .swarm_mes_gen_image.shift-active,
+    .swarm_mes_gen_from_msg.shift-active {
+        color: #ff69b4 !important;
+        text-shadow: 0 0 8px rgba(255, 105, 180, 0.6);
+        animation: swarm-pulse-glow 1s ease-in-out infinite;
     }
 
-.swarm-btn-secondary {
-    background: #6c757d;
-    color: white;
-}
-
-    .swarm-btn-secondary:hover:not(:disabled) {
-        background: #545b62;
+@keyframes swarm-pulse-glow {
+    0%, 100% {
+        text-shadow: 0 0 8px rgba(255, 105, 180, 0.6);
     }
 
-.swarm-btn-warning {
-    background: #ffc107;
-    color: #212529;
-}
-
-    .swarm-btn-warning:hover:not(:disabled) {
-        background: #e0a800;
-    }
-
-.swarm-btn-success {
-    background: #28a745;
-    color: white;
-}
-
-    .swarm-btn-success:hover:not(:disabled) {
-        background: #1e7e34;
-    }
-
-.swarm-loading-spinner {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border: 2px solid transparent;
-    border-top: 2px solid currentColor;
-    border-radius: 50%;
-    animation: swarm-spin 1s linear infinite;
-}
-
-@keyframes swarm-spin {
-    0% {
-        transform: rotate(0deg);
-    }
-
-    100% {
-        transform: rotate(360deg);
+    50% {
+        text-shadow: 0 0 14px rgba(255, 105, 180, 0.9);
     }
 }
 
-.swarm-prompt-info {
-    background: rgba(0, 123, 255, 0.1);
-    border: 1px solid rgba(0, 123, 255, 0.3);
-    border-radius: 4px;
-    padding: 12px;
-    margin-bottom: 15px;
-    font-size: 13px;
-    color: var(--SmartThemeQuoteColor, #fff);
-}
-
-.swarm-char-count {
-    text-align: right;
-    font-size: 12px;
-    color: var(--SmartThemeQuoteColor, #aaa);
-    margin-top: 5px;
-}
-
+/* ---- Message-level buttons ---- */
 .swarm_mes_gen_image {
     color: #dc3545 !important;
 }
@@ -297,242 +144,595 @@
     color: #28a745 !important;
 }
 
-#swarm_queue_widget {
-    position: fixed;
-    top: 100px;
-    right: 20px;
-    width: 250px;
-    max-height: 400px;
-    background: var(--SmartThemeBodyColor, #222);
-    border: 1px solid var(--SmartThemeBorderColor, #444);
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    z-index: 9999;
-    font-size: 12px;
-    transition: opacity 0.2s;
-}
-
-    #swarm_queue_widget.dragging {
-        opacity: 0.8;
+/* ---- Chat message flash highlight ---- */
+@keyframes swarm-highlight {
+    0% {
+        box-shadow: 0 0 0 2px #ffc107;
     }
 
-.swarm-queue-header {
+    50% {
+        box-shadow: 0 0 8px 4px rgba(255,193,7,0.7);
+    }
+
+    100% {
+        box-shadow: none;
+    }
+}
+
+.swarm-highlight-flash {
+    animation: swarm-highlight 1.5s ease-out forwards;
+}
+
+/* ============================================================
+   Generation Panel
+   ============================================================ */
+#swarm_gen_panel {
+    position: fixed;
+    top: 80px;
+    right: 16px;
+    width: 270px;
+    max-height: 520px;
+    background: var(--SmartThemeBodyColor, #1e1e1e);
+    border: 1px solid var(--SmartThemeBorderColor, #3a3a3a);
+    border-radius: 10px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+    z-index: 9999;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: opacity 0.2s, transform 0.2s;
+}
+
+    #swarm_gen_panel.swarm-panel--hidden {
+        display: none;
+    }
+
+    #swarm_gen_panel.swarm-panel--dragging {
+        opacity: 0.85;
+    }
+
+/* Panel header */
+.swarm-panel__header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
-    background: var(--SmartThemeBlurTintColor, #333);
-    border-bottom: 1px solid var(--SmartThemeBorderColor, #444);
-    border-radius: 7px 7px 0 0;
+    padding: 8px 10px;
+    background: var(--SmartThemeBlurTintColor, #2a2a2a);
+    border-bottom: 1px solid var(--SmartThemeBorderColor, #3a3a3a);
+    border-radius: 10px 10px 0 0;
+    cursor: move;
     user-select: none;
+    flex-shrink: 0;
 }
 
-.swarm-queue-title {
+.swarm-panel__title {
     display: flex;
     align-items: center;
-    gap: 6px;
-    color: var(--SmartThemeQuoteColor, #fff);
-    font-weight: bold;
-    text-shadow: none;
+    gap: 7px;
+    font-weight: 700;
     font-size: 13px;
+    color: var(--SmartThemeQuoteColor, #e8e8e8);
+    text-shadow: none;
+    letter-spacing: 0.3px;
 }
 
-.queue-count {
-    background: var(--SmartThemeHighlightColor, #007bff);
-    color: white;
-    border-radius: 10px;
-    padding: 2px 6px;
-    font-size: 10px;
-    min-width: 16px;
-    text-align: center;
-}
+    .swarm-panel__title i {
+        color: #9d78f0;
+    }
 
-.swarm-queue-controls {
+.swarm-panel__controls {
     display: flex;
     gap: 4px;
 }
 
-.swarm-queue-btn {
+/* Scrollable body */
+.swarm-panel__body {
+    overflow-y: auto;
+    flex: 1;
+    padding-bottom: 4px;
+}
+
+    .swarm-panel__body::-webkit-scrollbar {
+        width: 5px;
+    }
+
+    .swarm-panel__body::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .swarm-panel__body::-webkit-scrollbar-thumb {
+        background: var(--SmartThemeBorderColor, #444);
+        border-radius: 4px;
+    }
+
+/* Section headers */
+.swarm-panel__section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--SmartThemeQuoteColor, #888);
+    text-shadow: none;
+    border-top: 1px solid var(--SmartThemeBorderColor, #333);
+}
+
+    .swarm-panel__section-header:first-child {
+        border-top: none;
+    }
+
+    .swarm-panel__section-header i {
+        margin-right: 4px;
+        opacity: 0.7;
+    }
+
+.swarm-panel__section-content {
+    padding: 2px 6px 6px;
+}
+
+/* Empty state */
+.swarm-gen-empty {
+    color: var(--SmartThemeQuoteColor, #666);
+    font-size: 11px;
+    text-align: center;
+    padding: 10px 6px;
+    font-style: italic;
+    text-shadow: none;
+}
+
+/* ---- Icon buttons ---- */
+.swarm-icon-btn {
     background: none;
     border: none;
     color: var(--SmartThemeQuoteColor, #aaa);
     cursor: pointer;
-    padding: 4px;
-    border-radius: 3px;
-    font-size: 12px;
-    transition: all 0.2s;
+    padding: 3px 5px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 1;
+    transition: background 0.15s, color 0.15s;
+    text-shadow: none;
 }
 
-    .swarm-queue-btn:hover {
-        background: rgba(255, 255, 255, 0.1);
+    .swarm-icon-btn:hover {
+        background: rgba(255,255,255,0.1);
         color: var(--SmartThemeQuoteColor, #fff);
     }
 
-.swarm-queue-body {
-    max-height: 300px;
-    overflow-y: auto;
-    padding: 4px;
+.swarm-text-btn {
+    background: none;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    font-size: 10px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    text-shadow: none;
+    transition: color 0.15s;
 }
 
-    .swarm-queue-body::-webkit-scrollbar {
-        width: 6px;
+    .swarm-text-btn:hover {
+        color: #dc3545;
     }
 
-    .swarm-queue-body::-webkit-scrollbar-track {
-        background: var(--SmartThemeBodyColor, #222);
-    }
-
-    .swarm-queue-body::-webkit-scrollbar-thumb {
-        background: var(--SmartThemeBorderColor, #444);
-        border-radius: 3px;
-    }
-
-.swarm-queue-item {
-    margin: 4px;
-    padding: 6px 8px;
-    background: var(--SmartThemeBlurTintColor, #333);
-    border: 1px solid var(--SmartThemeBorderColor, #444);
-    border-radius: 4px;
-    transition: background-color 0.2s;
+/* ============================================================
+   Generation Items
+   ============================================================ */
+.swarm-gen-item {
+    margin: 3px 0;
+    padding: 7px 9px;
+    background: var(--SmartThemeBlurTintColor, #2a2a2a);
+    border: 1px solid var(--SmartThemeBorderColor, #3a3a3a);
+    border-left: 3px solid transparent;
+    border-radius: 6px;
+    transition: border-color 0.2s;
 }
 
-    .swarm-queue-item:hover {
-        background: var(--SmartThemeBodyColor, #2a2a2a);
-    }
+.swarm-gen-item--generating_prompt {
+    border-left-color: #9d78f0;
+}
 
-.swarm-queue-item-header {
+.swarm-gen-item--awaiting_image {
+    border-left-color: #3b9eff;
+}
+
+.swarm-gen-item--done {
+    border-left-color: #40c074;
+}
+
+.swarm-gen-item--error {
+    border-left-color: #e05555;
+}
+
+.swarm-gen-item--cancelled {
+    border-left-color: #666;
+    opacity: 0.7;
+}
+
+.swarm-gen-item__header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 6px;
     margin-bottom: 4px;
 }
 
-.swarm-queue-icons {
+.swarm-gen-status {
     display: flex;
-    gap: 6px;
-    font-size: 11px;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-shadow: none;
+    flex-shrink: 0;
 }
 
-.swarm-queue-message {
+.swarm-status--thinking {
+    color: #9d78f0;
+}
+
+.swarm-status--queued {
+    color: #3b9eff;
+}
+
+.swarm-status--done {
+    color: #40c074;
+}
+
+.swarm-status--error {
+    color: #e05555;
+}
+
+.swarm-status--cancelled {
+    color: #888;
+}
+
+.swarm-gen-type {
+    flex: 1;
     font-size: 10px;
-    color: var(--SmartThemeQuoteColor, #aaa);
+    color: var(--SmartThemeQuoteColor, #999);
+    text-shadow: none;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 1.3;
 }
 
-.swarm-queue-error {
-    font-size: 9px;
-    color: #dc3545;
-    margin-top: 2px;
-    line-height: 1.2;
+.swarm-gen-actions {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
 }
 
-.swarm-queue-remove {
-    background: none;
-    border: none;
-    color: #dc3545;
-    cursor: pointer;
-    padding: 2px;
-    border-radius: 2px;
+/* Spinning animation for generating status */
+@keyframes swarm-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.swarm-spin {
+    display: inline-block;
+    animation: swarm-spin 1s linear infinite;
+}
+
+/* ---- Streaming text area ---- */
+.swarm-gen-stream {
+    background: var(--SmartThemeBodyColor, #161616);
+    border: 1px solid var(--SmartThemeBorderColor, #2e2e2e);
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-top: 4px;
+    max-height: 100px;
+    overflow-y: auto;
+}
+
+    .swarm-gen-stream::-webkit-scrollbar {
+        width: 4px;
+    }
+
+    .swarm-gen-stream::-webkit-scrollbar-thumb {
+        background: var(--SmartThemeBorderColor, #444);
+        border-radius: 2px;
+    }
+
+.swarm-stream-text {
+    font-family: 'Consolas', 'Monaco', monospace;
     font-size: 10px;
-    opacity: 0.7;
-    transition: opacity 0.2s;
+    line-height: 1.5;
+    color: var(--SmartThemeQuoteColor, #c8c8c8);
+    word-break: break-word;
+    white-space: pre-wrap;
+    text-shadow: none;
 }
 
-    .swarm-queue-remove:hover {
+.swarm-cursor {
+    display: inline-block;
+    animation: swarm-blink 0.8s step-end infinite;
+    color: #9d78f0;
+    font-weight: bold;
+}
+
+@keyframes swarm-blink {
+    0%, 100% {
         opacity: 1;
     }
 
-#swarm_queue_container {
-    background: var(--SmartThemeBodyColor, #222);
-    border: 1px solid var(--SmartThemeBorderColor, #444);
+    50% {
+        opacity: 0;
+    }
+}
+
+/* ---- Prompt preview (non-streaming) ---- */
+.swarm-gen-prompt-preview {
+    font-size: 10px;
+    color: var(--SmartThemeQuoteColor, #bbb);
+    line-height: 1.4;
+    word-break: break-word;
+    margin-top: 3px;
+    text-shadow: none;
+}
+
+.swarm-gen-error {
+    font-size: 10px;
+    color: #e05555;
+    margin-top: 3px;
+    line-height: 1.3;
+    text-shadow: none;
+}
+
+.swarm-gen-queue-pos {
+    font-size: 10px;
+    color: #3b9eff;
+    margin-top: 3px;
+    font-style: italic;
+    text-shadow: none;
+}
+
+/* ============================================================
+   History Items
+   ============================================================ */
+.swarm-history-item {
+    margin: 3px 0;
+    padding: 6px 8px;
+    background: var(--SmartThemeBlurTintColor, #252525);
+    border: 1px solid var(--SmartThemeBorderColor, #333);
     border-radius: 5px;
-    margin-top: 10px;
-    padding: 10px;
+    transition: background 0.15s;
+    cursor: default;
 }
 
-.swarm-queue-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    margin-bottom: 8px;
-    background: var(--SmartThemeBlurTintColor, #333);
-    border: 1px solid var(--SmartThemeBorderColor, #444);
-    border-radius: 4px;
-    transition: background-color 0.2s;
-}
-
-    .swarm-queue-item:last-child {
-        margin-bottom: 0;
+    .swarm-history-item:hover {
+        background: var(--SmartThemeBodyColor, #2a2a2a);
     }
 
-.swarm-queue-info {
+.swarm-history-item__header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 3px;
+}
+
+.swarm-history-type {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #9d78f0;
+    text-shadow: none;
+    flex-shrink: 0;
+}
+
+.swarm-history-time {
     flex: 1;
-    min-width: 0;
+    font-size: 9px;
+    color: var(--SmartThemeQuoteColor, #666);
+    text-shadow: none;
+    text-align: right;
 }
 
-.swarm-queue-type {
-    font-weight: 500;
-    color: var(--SmartThemeQuoteColor, #fff);
-    margin-bottom: 4px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.swarm-queue-message {
-    font-size: 12px;
+.swarm-history-prompt {
+    font-size: 10px;
     color: var(--SmartThemeQuoteColor, #aaa);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.35;
+    word-break: break-word;
+    text-shadow: none;
 }
 
-.swarm-queue-error {
-    font-size: 11px;
-    color: #dc3545;
-    margin-top: 2px;
-}
-
-.swarm-queue-actions {
+/* ============================================================
+   Prompt Preview Modal
+   ============================================================ */
+.swarm-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
     display: flex;
-    gap: 4px;
-    margin-left: 10px;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+    backdrop-filter: blur(3px);
 }
 
-.swarm-queue-remove {
-    background: #dc3545;
-    color: white;
-    border: none;
-    border-radius: 3px;
-    padding: 4px 8px;
-    cursor: pointer;
-    font-size: 12px;
-    transition: background-color 0.2s;
+.swarm-modal {
+    background: var(--SmartThemeBodyColor, #1e1e1e);
+    border: 1px solid var(--SmartThemeBorderColor, #3a3a3a);
+    border-radius: 10px;
+    width: 90%;
+    max-width: 680px;
+    max-height: 90vh;
+    overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
 }
 
-    .swarm-queue-remove:hover {
-        background: #c82333;
+.swarm-modal-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, #3a3a3a);
+    background: var(--SmartThemeBlurTintColor, #272727);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.swarm-modal-title {
+    margin: 0;
+    color: var(--SmartThemeQuoteColor, #e8e8e8);
+    font-size: 16px;
+    font-weight: 700;
+    text-shadow: none;
+}
+
+    .swarm-modal-title i {
+        color: #9d78f0;
+        margin-right: 6px;
     }
 
-#swarm_clear_queue {
-    background: #dc3545;
-    color: white;
+.swarm-modal-close {
+    background: none;
     border: none;
-    border-radius: 3px;
-    padding: 4px 8px;
+    font-size: 20px;
+    color: var(--SmartThemeQuoteColor, #aaa);
     cursor: pointer;
-    font-size: 12px;
-    transition: background-color 0.2s;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background 0.15s, color 0.15s;
+    text-shadow: none;
 }
 
-    #swarm_clear_queue:hover {
-        background: #c82333;
+    .swarm-modal-close:hover {
+        background: rgba(255,255,255,0.08);
+        color: var(--SmartThemeQuoteColor, #fff);
     }
 
+.swarm-modal-body {
+    padding: 18px;
+    max-height: calc(90vh - 120px);
+    overflow-y: auto;
+}
+
+.swarm-prompt-info {
+    background: rgba(61, 126, 255, 0.1);
+    border: 1px solid rgba(61, 126, 255, 0.25);
+    border-radius: 5px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    color: var(--SmartThemeQuoteColor, #ccc);
+    text-shadow: none;
+}
+
+    .swarm-prompt-info i {
+        color: #3b9eff;
+        margin-right: 5px;
+    }
+
+.swarm-prompt-textarea {
+    width: 100%;
+    min-height: 180px;
+    max-height: 360px;
+    padding: 10px 12px;
+    border: 1px solid var(--SmartThemeBorderColor, #3a3a3a);
+    border-radius: 6px;
+    background: var(--SmartThemeBodyColor, #141414);
+    color: var(--SmartThemeQuoteColor, #e0e0e0);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    line-height: 1.45;
+    resize: vertical;
+    box-sizing: border-box;
+    text-shadow: none;
+    transition: border-color 0.15s;
+}
+
+    .swarm-prompt-textarea:focus {
+        outline: none;
+        border-color: #9d78f0;
+        box-shadow: 0 0 0 2px rgba(157, 120, 240, 0.2);
+    }
+
+.swarm-char-count {
+    text-align: right;
+    font-size: 11px;
+    color: var(--SmartThemeQuoteColor, #888);
+    margin-top: 5px;
+    text-shadow: none;
+}
+
+.swarm-modal-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+
+/* ---- Shared modal buttons ---- */
+.swarm-btn {
+    padding: 9px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    text-shadow: none;
+    transition: filter 0.15s, transform 0.1s;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+    .swarm-btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        transform: none !important;
+    }
+
+    .swarm-btn:hover:not(:disabled) {
+        filter: brightness(1.12);
+        transform: translateY(-1px);
+    }
+
+.swarm-btn-primary {
+    background: #6c47d3;
+    color: #fff;
+}
+
+.swarm-btn-secondary {
+    background: #4a4a5a;
+    color: #e0e0e0;
+}
+
+.swarm-btn-warning {
+    background: #d4940a;
+    color: #fff;
+}
+
+.swarm-btn-success {
+    background: #2e8f57;
+    color: #fff;
+}
+
+/* Loading spinner (used inside buttons) */
+.swarm-loading-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid transparent;
+    border-top: 2px solid currentColor;
+    border-radius: 50%;
+    animation: swarm-spin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+
+/* ============================================================
+   Responsive
+   ============================================================ */
 @media (max-width: 768px) {
     .swarm-modal {
         width: 95%;
@@ -548,68 +748,9 @@
         justify-content: center;
     }
 
-    .swarm-queue-item {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .swarm-queue-actions {
-        margin-left: 0;
-        margin-top: 8px;
-        align-self: flex-end;
-    }
-
-    .swarm-queue-cancel {
-        background: none;
-        border: none;
-        color: #ffc107;
-        cursor: pointer;
-        padding: 2px;
-        border-radius: 2px;
-        font-size: 10px;
-        opacity: 0.7;
-        transition: opacity 0.2s;
-    }
-
-        .swarm-queue-cancel:hover {
-            opacity: 1;
-        }
-
-    .text-muted {
-        color: #6c757d !important;
-    }
-
-    /* Button colors matching the message buttons */
-    #swarm_generate_button i {
-        color: #dc3545;
-    }
-
-    #swarm_generate_from_message_button i {
-        color: #28a745;
-    }
-
-    #swarm_generate_prompt_button i {
-        color: #ffc107;
-    }
-
-    /* Shift-active state for dimension swap buttons */
-    .shift-active i,
-    #swarm_generate_button.shift-active i,
-    #swarm_generate_from_message_button.shift-active i,
-    .swarm_mes_gen_image.shift-active,
-    .swarm_mes_gen_from_msg.shift-active {
-        color: #ff69b4 !important;
-        text-shadow: 0 0 8px rgba(255, 105, 180, 0.6);
-        animation: pulse-glow 1s ease-in-out infinite;
-    }
-
-    @keyframes pulse-glow {
-        0%, 100% {
-            text-shadow: 0 0 8px rgba(255, 105, 180, 0.6);
-        }
-
-        50% {
-            text-shadow: 0 0 12px rgba(255, 105, 180, 0.9);
-        }
+    #swarm_gen_panel {
+        right: 8px;
+        width: calc(100vw - 16px);
+        max-width: 300px;
     }
 }
