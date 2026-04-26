@@ -193,7 +193,7 @@ async function createNewSession() {
     const url = `${settings.url}/API/GetNewSession`;
     const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'skip_zrok_interstitial': '1', ...getRequestHeaders() },
+        headers: { 'Content-Type': 'application/json', 'skip_zrok_interstitial': '1' },
         body: JSON.stringify({}),
         credentials: 'omit',
     });
@@ -234,7 +234,7 @@ async function getSavedT2IParams(sessionId) {
     const url = `${settings.url}/API/GetSavedT2IParams?skip_zrok_interstitial=1`;
     const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1', ...getRequestHeaders() },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1' },
         body: JSON.stringify({ session_id: sessionId }),
         credentials: 'omit',
     });
