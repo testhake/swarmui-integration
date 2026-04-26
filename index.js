@@ -420,6 +420,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null, abortControl
                     systemPrompt,
                     prompt,
                     prefill: '',
+                    stopStrings: [],
                     abortSignal: abortController?.signal,
                     onToken,
                 });
