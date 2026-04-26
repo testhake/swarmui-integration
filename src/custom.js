@@ -40,23 +40,13 @@ function extractDeltaFromSSELine(line) {
     }
 
     // OpenAI-style (OpenAI, Mistral, DeepSeek, xAI, most custom endpoints)
-    if (obj.choices?.[0]?.delta != null) {
-        const delta = obj.choices[0].delta;
-        // DeepSeek-R1 / QwQ style reasoning tokens
-        if (delta.reasoning_content != null) return delta.reasoning_content || null;
-        if (delta.content != null) return delta.content || null;
-        return null;
+    if (obj.choices?.[0]?.delta?.content != null) {
+        return obj.choices[0].delta.content || null;
     }
 
-    // Anthropic / Claude extended thinking
-    if (obj.type === 'content_block_delta') {
-        // thinking block
-        if (obj.delta?.type === 'thinking_delta' && obj.delta?.thinking != null) {
-            return obj.delta.thinking || null;
-        }
-        // normal text block
-        if (obj.delta?.text != null) return obj.delta.text || null;
-        return null;
+    // Anthropic / Claude
+    if (obj.type === 'content_block_delta' && obj.delta?.text != null) {
+        return obj.delta.text || null;
     }
 
     // Cohere
@@ -69,8 +59,10 @@ function extractDeltaFromSSELine(line) {
         return obj.candidates[0].content.parts[0].text || null;
     }
 
-    // Novel AI
-    if (obj.token != null) return obj.token || null;
+    // Novel AI (returns "token" field)
+    if (obj.token != null) {
+        return obj.token || null;
+    }
 
     return null;
 }
