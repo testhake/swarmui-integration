@@ -193,7 +193,7 @@ async function createNewSession() {
     const url = `${settings.url}/API/GetNewSession`;
     const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'skip_zrok_interstitial': '1' },
+        headers: { 'Content-Type': 'application/json', 'skip_zrok_interstitial': '1', ...getRequestHeaders() },
         body: JSON.stringify({}),
         credentials: 'omit',
     });
@@ -234,7 +234,7 @@ async function getSavedT2IParams(sessionId) {
     const url = `${settings.url}/API/GetSavedT2IParams?skip_zrok_interstitial=1`;
     const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1', ...getRequestHeaders() },
         body: JSON.stringify({ session_id: sessionId }),
         credentials: 'omit',
     });
@@ -462,7 +462,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null, abortControl
 // ============================================================
 
 async function downloadImageAsBase64(imageUrl) {
-    const response = await fetch(imageUrl, { method: 'GET', headers: { 'skip_zrok_interstitial': '1' } });
+    const response = await fetch(imageUrl, { method: 'GET', headers: { 'skip_zrok_interstitial': '1', ...getRequestHeaders() } });
     if (!response.ok) throw new Error(`Failed to download image: ${response.status}`);
     const blob = await response.blob();
     const base64 = await getBase64Async(blob);
@@ -487,7 +487,7 @@ async function generateAndSaveImage(imagePrompt, savedParams = null, shouldSwapD
 
     const response = await fetch(`${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1', ...getRequestHeaders() },
         body: JSON.stringify({ session_id: sessionId, images: rawInput.images ?? 1, ...rawInput }),
         credentials: 'omit',
     });
@@ -512,7 +512,6 @@ async function generateAndSaveImage(imagePrompt, savedParams = null, shouldSwapD
 
     return { savedImagePath, imagePrompt };
 }
-
 
 // ============================================================
 // Chat Insertion (stable, anchor-based)
