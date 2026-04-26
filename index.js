@@ -487,7 +487,7 @@ async function generateAndSaveImage(imagePrompt, savedParams = null, shouldSwapD
 
     const response = await fetch(`${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1', ...getRequestHeaders() },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1' },
         body: JSON.stringify({ session_id: sessionId, images: rawInput.images ?? 1, ...rawInput }),
         credentials: 'omit',
     });
@@ -512,6 +512,7 @@ async function generateAndSaveImage(imagePrompt, savedParams = null, shouldSwapD
 
     return { savedImagePath, imagePrompt };
 }
+
 
 // ============================================================
 // Chat Insertion (stable, anchor-based)
