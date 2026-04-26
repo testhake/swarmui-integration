@@ -28,50 +28,30 @@ import { getTextGenGenerationData } from '../../../../textgen-settings.js';
  */
 function extractDeltaFromSSELine(line) {
     if (!line.startsWith('data:')) return null;
-
     const raw = line.slice(5).trim();
     if (!raw || raw === '[DONE]') return null;
-
     let obj;
-    try {
-        obj = JSON.parse(raw);
-    } catch {
-        return null;
-    }
+    try { obj = JSON.parse(raw); } catch { return null; }
 
-    // OpenAI-style (OpenAI, Mistral, DeepSeek, xAI, most custom endpoints)
     if (obj.choices?.[0]?.delta != null) {
         const delta = obj.choices[0].delta;
-        // DeepSeek-R1 / QwQ style reasoning tokens
-        if (delta.reasoning_content != null) return delta.reasoning_content || null;
-        if (delta.content != null) return delta.content || null;
+        if (delta.reasoning_content != null) return { text: delta.reasoning_content, thinking: true };
+        if (delta.content != null) return { text: delta.content, thinking: false };
         return null;
     }
-
-    // Anthropic / Claude extended thinking
     if (obj.type === 'content_block_delta') {
-        // thinking block
-        if (obj.delta?.type === 'thinking_delta' && obj.delta?.thinking != null) {
-            return obj.delta.thinking || null;
-        }
-        // normal text block
-        if (obj.delta?.text != null) return obj.delta.text || null;
+        if (obj.delta?.type === 'thinking_delta' && obj.delta?.thinking != null)
+            return { text: obj.delta.thinking, thinking: true };
+        if (obj.delta?.text != null)
+            return { text: obj.delta.text, thinking: false };
         return null;
     }
-
-    // Cohere
-    if (obj.event_type === 'text-generation' && obj.text != null) {
-        return obj.text || null;
-    }
-
-    // Google Gemini / MakerSuite / VertexAI
-    if (obj.candidates?.[0]?.content?.parts?.[0]?.text != null) {
-        return obj.candidates[0].content.parts[0].text || null;
-    }
-
-    // Novel AI
-    if (obj.token != null) return obj.token || null;
-
+    if (obj.event_type === 'text-generation' && obj.text != null)
+        return { text: obj.text, thinking: false };
+    if (obj.candidates?.[0]?.content?.parts?.[0]?.text != null)
+        return { text: obj.candidates[0].content.parts[0].text, thinking: false };
+    if (obj.token != null)
+        return { text: obj.token, thinking: false };
     return null;
 }
 
@@ -91,51 +71,54 @@ function extractDeltaFromSSELine(line) {
 async function readStreamingResponse(response, onToken, signal) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
-    let accumulated = '';
+    let accumulatedThinking = '';
+    let accumulatedText = '';
     let lineBuffer = '';
+    let wasThinking = false;
+
+    const processChunk = (delta) => {
+        if (!delta) return;
+        const { text, thinking } = delta;
+        if (!text) return;
+
+        if (thinking) {
+            accumulatedThinking += text;
+            wasThinking = true;
+            try { onToken({ text, thinking: true }); } catch { }
+        } else {
+            accumulatedText += text;
+            try { onToken({ text, thinking: false }); } catch { }
+        }
+    };
 
     try {
         while (true) {
-            if (signal?.aborted) {
-                reader.cancel();
-                throw new DOMException('Aborted', 'AbortError');
-            }
-
+            if (signal?.aborted) { reader.cancel(); throw new DOMException('Aborted', 'AbortError'); }
             const { value, done } = await reader.read();
             if (done) break;
 
             lineBuffer += decoder.decode(value, { stream: true });
-
-            // Process complete lines
             const lines = lineBuffer.split('\n');
-            // Keep the last (possibly incomplete) line in the buffer
             lineBuffer = lines.pop() ?? '';
 
             for (const line of lines) {
                 const trimmed = line.trim();
                 if (!trimmed) continue;
-
-                const delta = extractDeltaFromSSELine(trimmed);
-                if (delta) {
-                    accumulated += delta;
-                    try { onToken(delta); } catch { /* ignore callback errors */ }
-                }
+                processChunk(extractDeltaFromSSELine(trimmed));
             }
         }
-
-        // Flush any remaining buffered line
         if (lineBuffer.trim()) {
-            const delta = extractDeltaFromSSELine(lineBuffer.trim());
-            if (delta) {
-                accumulated += delta;
-                try { onToken(delta); } catch { }
-            }
+            processChunk(extractDeltaFromSSELine(lineBuffer.trim()));
         }
     } finally {
         try { reader.cancel(); } catch { }
     }
 
-    return accumulated;
+    // Combine: wrap thinking in <think> tags if present, then the real text
+    const full = accumulatedThinking
+        ? `<think>${accumulatedThinking}</think>${accumulatedText}`
+        : accumulatedText;
+    return full;
 }
 
 // ============================================================
