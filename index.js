@@ -485,22 +485,80 @@ async function generateAndSaveImage(imagePrompt, savedParams = null, shouldSwapD
     }
     rawInput.prompt = finalPrompt;
 
-    const response = await fetch(`${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`, {
+    const response = await fetch(`${settings.url}/API/GenerateText2ImageStreaming?skip_zrok_interstitial=1`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1', ...getRequestHeaders() },
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/x-ndjson',
+            'skip_zrok_interstitial': '1',
+            ...getRequestHeaders()
+        },
         body: JSON.stringify({ session_id: sessionId, images: rawInput.images ?? 1, ...rawInput }),
         credentials: 'omit',
     });
 
     if (!response.ok) {
-        if (response.status === 401 || response.status === 403) { cachedSessionId = null; delete settings.cached_session_id; }
+        if (response.status === 401 || response.status === 403) {
+            cachedSessionId = null;
+            delete settings.cached_session_id;
+        }
         throw new Error(`HTTP ${response.status}`);
     }
 
-    const data = JSON.parse(await response.text());
-    if (!data?.images?.length) throw new Error('No images returned from API');
+    // Read the NDJSON stream line by line
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let imageUrl = null;
+    const discards = [];
 
-    let imageUrl = data.images[0];
+    outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        // Last element may be incomplete — keep it in the buffer
+        buffer = lines.pop();
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+
+            let obj;
+            try {
+                obj = JSON.parse(trimmed);
+            } catch {
+                console.warn('[swarmUI-integration] Failed to parse NDJSON line:', trimmed);
+                continue;
+            }
+
+            if (obj.keep_alive) {
+                // Heartbeat — connection is alive, just continue
+                continue;
+            }
+
+            if (obj.error) {
+                throw new Error(obj.error);
+            }
+
+            if (obj.discard_indices) {
+                discards.push(...obj.discard_indices);
+            }
+
+            if (obj.image && obj.batch_index !== undefined) {
+                const idx = parseInt(obj.batch_index);
+                if (!discards.includes(idx)) {
+                    imageUrl = obj.image;
+                    // Don't break — drain remaining lines cleanly
+                }
+            }
+        }
+    }
+
+    if (!imageUrl) throw new Error('No images returned from API');
+
+    // Resolve relative URLs
     if (typeof imageUrl === 'string' && !imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
         imageUrl = `${settings.url}/${imageUrl}`;
     }
