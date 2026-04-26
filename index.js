@@ -406,31 +406,30 @@ async function generateImagePromptFromChat(upToMessageIndex = null, abortControl
             prompt = parsedMessages.map(msg => ({ role: msg.role, content: msg.content }));
         }
 
-        try {
-            if (settings.use_custom_generate_raw) {
-                imagePrompt = await generateRawWithStops({
-                    systemPrompt,
-                    prompt,
-                    prefill: '',
-                    stopStrings: ['<|im_end|>', '</s>', '[/INST]', '<|endoftext|>', '<END>'],
-                    abortSignal: abortController?.signal,
-                    onToken,
-                });
-            } else {
-                imagePrompt = await generateRawWithStops({
-                    systemPrompt,
-                    prompt,
-                    prefill: '',
-                    abortSignal: abortController?.signal,
-                    onToken,
-                });
+        // Wrap onToken to accept { text, thinking } objects from readStreamingResponse
+        const wrappedOnToken = onToken ? (chunk) => {
+            if (typeof chunk === 'object' && chunk !== null && 'text' in chunk) {
+                onToken(chunk); // already the right shape, pass through
+            } else if (typeof chunk === 'string') {
+                onToken({ text: chunk, thinking: false }); // legacy plain string fallback
             }
+        } : null;
+
+        try {
+            imagePrompt = await generateRawWithStops({
+                systemPrompt,
+                prompt,
+                prefill: '',
+                stopStrings: [],
+                abortSignal: abortController?.signal,
+                onToken: wrappedOnToken,
+            });
         } catch (error) {
             if (error.name === 'AbortError') throw new Error('Generation cancelled by user');
             throw error;
         }
     } else {
-        // Non-raw path: use generateQuietPrompt (no streaming available here)
+        // Non-raw path: generateQuietPrompt has no streaming support
         let lastVisibleMessage = '';
         const searchUpTo = upToMessageIndex !== null ? upToMessageIndex + 1 : chat.length;
         for (let i = searchUpTo - 1; i >= 0; i--) {
