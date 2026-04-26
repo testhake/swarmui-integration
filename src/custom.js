@@ -28,31 +28,50 @@ import { getTextGenGenerationData } from '../../../../textgen-settings.js';
  */
 function extractDeltaFromSSELine(line) {
     if (!line.startsWith('data:')) return null;
+
     const raw = line.slice(5).trim();
     if (!raw || raw === '[DONE]') return null;
 
     let obj;
-    try { obj = JSON.parse(raw); } catch { return null; }
+    try {
+        obj = JSON.parse(raw);
+    } catch {
+        return null;
+    }
 
+    // OpenAI-style (OpenAI, Mistral, DeepSeek, xAI, most custom endpoints)
     if (obj.choices?.[0]?.delta != null) {
         const delta = obj.choices[0].delta;
-        // DeepSeek-R1 style: reasoning comes on its own field
-        // Wrap it in <think> tags so the caller can detect it
-        if (delta.reasoning_content != null) return delta.reasoning_content ? `<think_token>${delta.reasoning_content}</think_token>` : null;
+        // DeepSeek-R1 / QwQ style reasoning tokens
+        if (delta.reasoning_content != null) return delta.reasoning_content || null;
         if (delta.content != null) return delta.content || null;
         return null;
     }
+
+    // Anthropic / Claude extended thinking
     if (obj.type === 'content_block_delta') {
-        if (obj.delta?.type === 'thinking_delta' && obj.delta?.thinking != null)
-            return obj.delta.thinking ? `<think_token>${obj.delta.thinking}</think_token>` : null;
+        // thinking block
+        if (obj.delta?.type === 'thinking_delta' && obj.delta?.thinking != null) {
+            return obj.delta.thinking || null;
+        }
+        // normal text block
         if (obj.delta?.text != null) return obj.delta.text || null;
         return null;
     }
-    if (obj.event_type === 'text-generation' && obj.text != null)
+
+    // Cohere
+    if (obj.event_type === 'text-generation' && obj.text != null) {
         return obj.text || null;
-    if (obj.candidates?.[0]?.content?.parts?.[0]?.text != null)
+    }
+
+    // Google Gemini / MakerSuite / VertexAI
+    if (obj.candidates?.[0]?.content?.parts?.[0]?.text != null) {
         return obj.candidates[0].content.parts[0].text || null;
+    }
+
+    // Novel AI
     if (obj.token != null) return obj.token || null;
+
     return null;
 }
 
@@ -77,40 +96,45 @@ async function readStreamingResponse(response, onToken, signal) {
 
     try {
         while (true) {
-            if (signal?.aborted) { reader.cancel(); throw new DOMException('Aborted', 'AbortError'); }
+            if (signal?.aborted) {
+                reader.cancel();
+                throw new DOMException('Aborted', 'AbortError');
+            }
+
             const { value, done } = await reader.read();
             if (done) break;
 
             lineBuffer += decoder.decode(value, { stream: true });
+
+            // Process complete lines
             const lines = lineBuffer.split('\n');
+            // Keep the last (possibly incomplete) line in the buffer
             lineBuffer = lines.pop() ?? '';
 
             for (const line of lines) {
                 const trimmed = line.trim();
                 if (!trimmed) continue;
-                const text = extractDeltaFromSSELine(trimmed);
-                if (text) {
-                    accumulated += text;
-                    try { onToken(text); } catch { }
+
+                const delta = extractDeltaFromSSELine(trimmed);
+                if (delta) {
+                    accumulated += delta;
+                    try { onToken(delta); } catch { /* ignore callback errors */ }
                 }
             }
         }
+
+        // Flush any remaining buffered line
         if (lineBuffer.trim()) {
-            const text = extractDeltaFromSSELine(lineBuffer.trim());
-            if (text) {
-                accumulated += text;
-                try { onToken(text); } catch { }
+            const delta = extractDeltaFromSSELine(lineBuffer.trim());
+            if (delta) {
+                accumulated += delta;
+                try { onToken(delta); } catch { }
             }
         }
     } finally {
         try { reader.cancel(); } catch { }
     }
-    // Collapse all <think_token>...</think_token> spans into a single <think> block
-    const thinkingContent = [...accumulated.matchAll(/<think_token>([\s\S]*?)<\/think_token>/g)]
-        .map(m => m[1]).join('');
-    const textContent = accumulated.replace(/<think_token>[\s\S]*?<\/think_token>/g, '').trim();
 
-    return thinkingContent ? `<think>${thinkingContent}</think>${textContent}` : textContent;
     return accumulated;
 }
 

@@ -67,12 +67,11 @@ function createGeneration(type, messageIndex, chatAnchorId = null) {
     const id = ++generationIdCounter;
     const gen = {
         id,
-        type,           // 'prompt_only' | 'prompt_then_image' | 'image_from_message' 
+        type,           // 'prompt_only' | 'prompt_then_image' | 'image_from_message'
         messageIndex,
         chatAnchorId,   // stable anchor for chat insertion
         status: 'generating_prompt', // generating_prompt | awaiting_image | done | error | cancelled
         streamedText: '',
-        streamedThinking: '',
         finalPrompt: null,
         error: null,
         abortController: new AbortController(),
@@ -357,7 +356,6 @@ function parsePromptTemplate(template, messages) {
  */
 function cleanImagePrompt(raw) {
     return raw
-        .replace(/<think>[\s\S]*?<\/think>/g, '')  // ← add this as the first replace
         .replace(/\*/g, '')
         .replace(/"/g, '')
         .replace(/`/g, '')
@@ -700,23 +698,14 @@ async function generatePromptsParallel(indices, type, swapDimensions = false) {
  * Generate prompt for a single gen object (streams tokens into the panel).
  */
 async function generatePromptForGen(gen, messageIndex) {
-    const onToken = (raw) => {
+    const onToken = (token) => {
         if (gen.status === 'cancelled') return;
-
-        // Check if this token is a thinking token
-        const thinkMatch = raw.match(/^<think_token>([\s\S]*)<\/think_token>$/);
-        if (thinkMatch) {
-            gen.streamedThinking = (gen.streamedThinking || '') + thinkMatch[1];
-        } else {
-            gen.streamedText += raw;
-        }
+        gen.streamedText += token;
         renderGenerationPanel();
     };
 
     try {
-        const raw = await generateImagePromptFromChat(messageIndex, gen.abortController, onToken);
-        // Strip <think>...</think> from the final prompt
-        const prompt = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        const prompt = await generateImagePromptFromChat(messageIndex, gen.abortController, onToken);
         return prompt;
     } catch (error) {
         if (gen.status !== 'cancelled') {
@@ -813,124 +802,82 @@ async function processImageQueue() {
 // ============================================================
 // Generation Panel UI (replaces queue widget)
 // ============================================================
-function patchStreamingItems() {
-    activeGenerations.forEach(gen => {
-        if (gen.status !== 'generating_prompt') return;
-        const $item = $(`.swarm-gen-item[data-gen-id="${gen.id}"]`);
-        if (!$item.length) return;
 
-        // Patch thinking text without rebuilding DOM
-        if (gen.streamedThinking) {
-            let $thinking = $item.find('.swarm-thinking-text');
-            if (!$thinking.length) {
-                // First time thinking appears — need a full re-render of this item only
-                return; // fall through to full render below
-            }
-            $thinking.text(gen.streamedThinking.slice(-300));
-        }
-
-        // Patch response text
-        let $streamText = $item.find('.swarm-stream-text');
-        if (gen.streamedText) {
-            if (!$streamText.length) return; // needs full render
-            $streamText.text(gen.streamedText);
-            $streamText.append('<span class="swarm-cursor">▌</span>');
-        }
-    });
-}
 function renderGenerationPanel() {
     const $panel = $('#swarm_gen_panel');
     const $list = $('#swarm_gen_list');
+    const $historyList = $('#swarm_history_list');
     const generations = [...activeGenerations.values()];
 
+    // Show/hide panel
     const hasActivity = generations.length > 0 || getPromptHistory().length > 0;
-    if (!hasActivity) { $panel.addClass('swarm-panel--hidden'); return; }
-    $panel.removeClass('swarm-panel--hidden');
-
-    // Check if we can patch in place (all active gens already have DOM nodes)
-    const allRendered = generations.every(gen =>
-        gen.status !== 'generating_prompt' ||
-        $list.find(`.swarm-gen-item[data-gen-id="${gen.id}"]`).length > 0
-    );
-
-    if (allRendered) {
-        patchStreamingItems();
-        // Still re-render items whose status changed (not generating_prompt)
-        generations.forEach(gen => {
-            if (gen.status === 'generating_prompt') return;
-            const $existing = $list.find(`.swarm-gen-item[data-gen-id="${gen.id}"]`);
-            if ($existing.length) $existing.replaceWith(buildGenItemHtml(gen));
-        });
-        renderPromptHistory();
+    if (!hasActivity) {
+        $panel.addClass('swarm-panel--hidden');
         return;
     }
+    $panel.removeClass('swarm-panel--hidden');
 
-    // Full re-render
+    // Render active generations
     $list.empty();
     if (generations.length === 0) {
         $list.html('<div class="swarm-gen-empty">No active generations</div>');
     } else {
-        generations.forEach(gen => $list.append(buildGenItemHtml(gen)));
-    }
-    renderPromptHistory();
-}
-function buildGenItemHtml(gen) {
-    const statusMeta = {
-        generating_prompt: { icon: 'fa-brain', cls: 'swarm-status--thinking', label: 'Thinking' },
-        awaiting_image: { icon: 'fa-hourglass-half', cls: 'swarm-status--queued', label: 'Queued' },
-        done: { icon: 'fa-check', cls: 'swarm-status--done', label: 'Done' },
-        error: { icon: 'fa-triangle-exclamation', cls: 'swarm-status--error', label: 'Error' },
-        cancelled: { icon: 'fa-ban', cls: 'swarm-status--cancelled', label: 'Cancelled' },
-    }[gen.status] || { icon: 'fa-circle', cls: '', label: gen.status };
+        generations.forEach(gen => {
+            const statusMeta = {
+                generating_prompt: { icon: 'fa-brain', cls: 'swarm-status--thinking', label: 'Thinking' },
+                awaiting_image: { icon: 'fa-hourglass-half', cls: 'swarm-status--queued', label: 'Queued' },
+                done: { icon: 'fa-check', cls: 'swarm-status--done', label: 'Done' },
+                error: { icon: 'fa-triangle-exclamation', cls: 'swarm-status--error', label: 'Error' },
+                cancelled: { icon: 'fa-ban', cls: 'swarm-status--cancelled', label: 'Cancelled' },
+            }[gen.status] || { icon: 'fa-circle', cls: '', label: gen.status };
 
-    const typeLabel = {
-        prompt_only: 'Prompt Only',
-        prompt_then_image: 'Prompt → Image',
-        image_from_message: 'Image from Msg',
-    }[gen.type] || gen.type;
+            const typeLabel = {
+                prompt_only: 'Prompt Only',
+                prompt_then_image: 'Prompt → Image',
+                image_from_message: 'Image from Msg',
+            }[gen.type] || gen.type;
 
-    const canCancel = gen.status === 'generating_prompt' || gen.status === 'awaiting_image';
-    const canRetry = gen.status === 'error';
-    const canDismiss = gen.status === 'done' || gen.status === 'error' || gen.status === 'cancelled';
+            const canCancel = gen.status === 'generating_prompt' || gen.status === 'awaiting_image';
+            const canRetry = gen.status === 'error';
 
-    const displayText = (gen.finalPrompt || gen.streamedText || '').substring(0, 120);
-    const displayTrunc = (gen.finalPrompt || gen.streamedText || '').length > 120 ? '…' : '';
+            const displayText = gen.finalPrompt
+                ? gen.finalPrompt.substring(0, 120) + (gen.finalPrompt.length > 120 ? '…' : '')
+                : (gen.streamedText
+                    ? gen.streamedText.substring(0, 120) + (gen.streamedText.length > 120 ? '…' : '')
+                    : '');
 
-    return `
-        <div class="swarm-gen-item swarm-gen-item--${gen.status}" data-gen-id="${gen.id}">
-            <div class="swarm-gen-item__header">
-                <span class="swarm-gen-status ${statusMeta.cls}">
-                    <i class="fa-solid ${statusMeta.icon}${gen.status === 'generating_prompt' ? ' swarm-spin' : ''}"></i>
-                    ${statusMeta.label}
-                </span>
-                <span class="swarm-gen-type">${typeLabel}</span>
-                <div class="swarm-gen-actions">
-                    ${canCancel ? `<button class="swarm-icon-btn swarm-cancel-gen"  data-gen-id="${gen.id}" title="Cancel"><i class="fa-solid fa-xmark"></i></button>` : ''}
-                    ${canRetry ? `<button class="swarm-icon-btn swarm-retry-gen"   data-gen-id="${gen.id}" title="Retry"><i class="fa-solid fa-rotate-right"></i></button>` : ''}
-                    ${canDismiss ? `<button class="swarm-icon-btn swarm-dismiss-gen" data-gen-id="${gen.id}" title="Dismiss"><i class="fa-solid fa-xmark"></i></button>` : ''}
-                </div>
-            </div>
-            ${gen.status === 'generating_prompt' ? `
-                <div class="swarm-gen-stream">
-                    ${gen.streamedThinking ? `
-                        <div class="swarm-stream-thinking">
-                            <span class="swarm-thinking-label"><i class="fa-solid fa-brain"></i> Thinking…</span>
-                            <div class="swarm-thinking-text">${escapeHtml(gen.streamedThinking.slice(-300))}</div>
+            $list.append(`
+                <div class="swarm-gen-item swarm-gen-item--${gen.status}" data-gen-id="${gen.id}">
+                    <div class="swarm-gen-item__header">
+                        <span class="swarm-gen-status ${statusMeta.cls}">
+                            <i class="fa-solid ${statusMeta.icon}${gen.status === 'generating_prompt' ? ' swarm-spin' : ''}"></i>
+                            ${statusMeta.label}
+                        </span>
+                        <span class="swarm-gen-type">${typeLabel}</span>
+                        <div class="swarm-gen-actions">
+                            ${canCancel ? `<button class="swarm-icon-btn swarm-cancel-gen" data-gen-id="${gen.id}" title="Cancel"><i class="fa-solid fa-xmark"></i></button>` : ''}
+                            ${canRetry ? `<button class="swarm-icon-btn swarm-retry-gen"  data-gen-id="${gen.id}" title="Retry"><i class="fa-solid fa-rotate-right"></i></button>` : ''}
+                            ${(gen.status === 'done' || gen.status === 'error' || gen.status === 'cancelled')
+                    ? `<button class="swarm-icon-btn swarm-dismiss-gen" data-gen-id="${gen.id}" title="Dismiss"><i class="fa-solid fa-xmark"></i></button>`
+                    : ''}
+                        </div>
+                    </div>
+                    ${gen.status === 'generating_prompt' ? `
+                        <div class="swarm-gen-stream">
+                            <div class="swarm-stream-text">${escapeHtml(gen.streamedText)}<span class="swarm-cursor">▌</span></div>
                         </div>
                     ` : ''}
-                    ${gen.streamedText
-                ? `<div class="swarm-stream-text">${escapeHtml(gen.streamedText)}<span class="swarm-cursor">▌</span></div>`
-                : (!gen.streamedThinking ? `<span class="swarm-cursor">▌</span>` : '')
-            }
+                    ${displayText && gen.status !== 'generating_prompt' ? `
+                        <div class="swarm-gen-prompt-preview">${escapeHtml(displayText)}</div>
+                    ` : ''}
+                    ${gen.error ? `<div class="swarm-gen-error">${escapeHtml(gen.error)}</div>` : ''}
+                    ${gen.status === 'awaiting_image' ? `<div class="swarm-gen-queue-pos">In image queue</div>` : ''}
                 </div>
-            ` : ''}
-            ${displayText && gen.status !== 'generating_prompt' ? `
-                <div class="swarm-gen-prompt-preview">${escapeHtml(displayText)}${displayTrunc}</div>
-            ` : ''}
-            ${gen.error ? `<div class="swarm-gen-error">${escapeHtml(gen.error)}</div>` : ''}
-            ${gen.status === 'awaiting_image' ? `<div class="swarm-gen-queue-pos">In image queue</div>` : ''}
-        </div>
-    `;
+            `);
+        });
+    }
+
+    renderPromptHistory();
 }
 
 function renderPromptHistory() {
