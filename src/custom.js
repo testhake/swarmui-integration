@@ -72,25 +72,8 @@ function extractDeltaFromSSELine(line) {
 async function readStreamingResponse(response, onToken, signal) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
-    let accumulatedThinking = '';
-    let accumulatedText = '';
+    let accumulated = '';
     let lineBuffer = '';
-    let wasThinking = false;
-
-    const processChunk = (delta) => {
-        if (!delta) return;
-        const { text, thinking } = delta;
-        if (!text) return;
-
-        if (thinking) {
-            accumulatedThinking += text;
-            wasThinking = true;
-            try { onToken({ text, thinking: true }); } catch { }
-        } else {
-            accumulatedText += text;
-            try { onToken({ text, thinking: false }); } catch { }
-        }
-    };
 
     try {
         while (true) {
@@ -105,11 +88,19 @@ async function readStreamingResponse(response, onToken, signal) {
             for (const line of lines) {
                 const trimmed = line.trim();
                 if (!trimmed) continue;
-                processChunk(extractDeltaFromSSELine(trimmed));
+                const text = extractDeltaFromSSELine(trimmed);
+                if (text) {
+                    accumulated += text;
+                    try { onToken(text); } catch { }
+                }
             }
         }
         if (lineBuffer.trim()) {
-            processChunk(extractDeltaFromSSELine(lineBuffer.trim()));
+            const text = extractDeltaFromSSELine(lineBuffer.trim());
+            if (text) {
+                accumulated += text;
+                try { onToken(text); } catch { }
+            }
         }
     } finally {
         try { reader.cancel(); } catch { }
@@ -120,6 +111,7 @@ async function readStreamingResponse(response, onToken, signal) {
     const textContent = accumulated.replace(/<think_token>[\s\S]*?<\/think_token>/g, '').trim();
 
     return thinkingContent ? `<think>${thinkingContent}</think>${textContent}` : textContent;
+    return accumulated;
 }
 
 // ============================================================
