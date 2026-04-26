@@ -416,7 +416,7 @@ async function generateImagePromptFromChat(upToMessageIndex = null, abortControl
                     onToken,
                 });
             } else {
-                imagePrompt = await generateRaw({
+                imagePrompt = await generateRawWithStops({
                     systemPrompt,
                     prompt,
                     prefill: '',

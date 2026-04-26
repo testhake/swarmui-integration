@@ -12,41 +12,168 @@ import { novelai_settings, novelai_setting_names, nai_settings, getNovelGenerati
 import { generateHorde } from '../../../../horde.js';
 import { getTextGenGenerationData } from '../../../../textgen-settings.js';
 
-/**
- * Custom OpenAI request function that properly handles stop strings
- * @param {object[]} messages - Array of chat messages
- * @param {string[]} stopStrings - Array of stop strings
- * @param {object} jsonSchema - Optional JSON schema
- * @param {AbortSignal} signal - Abort signal
- * @returns {Promise<object>} Response data
- */
-async function sendCustomOpenAIRequest(messages, stopStrings, jsonSchema, signal) {
-    let model = getChatCompletionModel();
+// ============================================================
+// SSE Streaming helpers
+// ============================================================
 
-    if (getCustomModel() !== "") {
+/**
+ * Extract the text delta from a single SSE data line across common provider formats.
+ * Returns null if the line carries no text content (e.g. [DONE], role-only chunks).
+ *
+ * Supported formats:
+ *   - OpenAI / Mistral / DeepSeek / xAI / Custom  →  choices[0].delta.content
+ *   - Anthropic (Claude)                           →  delta.text  (type: content_block_delta)
+ *   - Cohere                                       →  text  (event_type: text-generation)
+ *   - Google Gemini / MakerSuite                   →  candidates[0].content.parts[0].text
+ */
+function extractDeltaFromSSELine(line) {
+    if (!line.startsWith('data:')) return null;
+
+    const raw = line.slice(5).trim();
+    if (!raw || raw === '[DONE]') return null;
+
+    let obj;
+    try {
+        obj = JSON.parse(raw);
+    } catch {
+        return null;
+    }
+
+    // OpenAI-style (OpenAI, Mistral, DeepSeek, xAI, most custom endpoints)
+    if (obj.choices?.[0]?.delta?.content != null) {
+        return obj.choices[0].delta.content || null;
+    }
+
+    // Anthropic / Claude
+    if (obj.type === 'content_block_delta' && obj.delta?.text != null) {
+        return obj.delta.text || null;
+    }
+
+    // Cohere
+    if (obj.event_type === 'text-generation' && obj.text != null) {
+        return obj.text || null;
+    }
+
+    // Google Gemini / MakerSuite / VertexAI
+    if (obj.candidates?.[0]?.content?.parts?.[0]?.text != null) {
+        return obj.candidates[0].content.parts[0].text || null;
+    }
+
+    // Novel AI (returns "token" field)
+    if (obj.token != null) {
+        return obj.token || null;
+    }
+
+    return null;
+}
+
+/**
+ * Parse a streaming HTTP response (SSE) from the ST backend proxy.
+ * Calls `onToken(text)` for every text chunk received.
+ * Returns the full accumulated text when the stream ends.
+ *
+ * The ST backend itself is the one that proxies to the real LLM, so we always
+ * receive the same SSE format regardless of which provider is selected.
+ *
+ * @param {Response} response - Fetch Response with a readable body stream
+ * @param {function(string): void} onToken - Called with each text chunk
+ * @param {AbortSignal} [signal] - Optional abort signal
+ * @returns {Promise<string>} Full accumulated response text
+ */
+async function readStreamingResponse(response, onToken, signal) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let accumulated = '';
+    let lineBuffer = '';
+
+    try {
+        while (true) {
+            if (signal?.aborted) {
+                reader.cancel();
+                throw new DOMException('Aborted', 'AbortError');
+            }
+
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            lineBuffer += decoder.decode(value, { stream: true });
+
+            // Process complete lines
+            const lines = lineBuffer.split('\n');
+            // Keep the last (possibly incomplete) line in the buffer
+            lineBuffer = lines.pop() ?? '';
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+
+                const delta = extractDeltaFromSSELine(trimmed);
+                if (delta) {
+                    accumulated += delta;
+                    try { onToken(delta); } catch { /* ignore callback errors */ }
+                }
+            }
+        }
+
+        // Flush any remaining buffered line
+        if (lineBuffer.trim()) {
+            const delta = extractDeltaFromSSELine(lineBuffer.trim());
+            if (delta) {
+                accumulated += delta;
+                try { onToken(delta); } catch { }
+            }
+        }
+    } finally {
+        try { reader.cancel(); } catch { }
+    }
+
+    return accumulated;
+}
+
+// ============================================================
+// Core request function (streaming-aware)
+// ============================================================
+
+/**
+ * Send a request to the ST backend's chat-completions proxy.
+ * When `onToken` is provided the request is made with `stream: true` and
+ * each text chunk is forwarded to the callback; the full text is returned
+ * when the stream ends.  Without `onToken` the old non-streaming path is used.
+ *
+ * @param {object[]} messages - Chat messages array
+ * @param {string[]} stopStrings - Stop strings for the LLM
+ * @param {object|null} jsonSchema - Optional JSON schema
+ * @param {AbortSignal} signal - Abort signal
+ * @param {function(string): void|null} onToken - Token streaming callback (null = no streaming)
+ * @returns {Promise<object|string>} Full response data object (non-streaming) or text string (streaming)
+ */
+async function sendCustomOpenAIRequest(messages, stopStrings, jsonSchema, signal, onToken = null) {
+    let model = getChatCompletionModel();
+    if (getCustomModel() !== '') {
         model = getCustomModel();
     }
 
+    const useStreaming = typeof onToken === 'function';
+
     const generateData = {
-        model: model,
-        messages: messages,
+        model,
+        messages,
         temperature: Number(oai_settings.temp_openai),
         top_p: Number(oai_settings.top_p_openai),
         frequency_penalty: Number(oai_settings.freq_pen_openai),
         presence_penalty: Number(oai_settings.pres_pen_openai),
         max_tokens: oai_settings.openai_max_tokens,
-        stream: true,
+        stream: useStreaming,
         stop: stopStrings,
         chat_completion_source: oai_settings.chat_completion_source,
     };
 
-    // Add additional settings based on the completion source
-    if (oai_settings.chat_completion_source == chat_completion_sources.MISTRALAI) {
+    // Provider-specific tweaks
+    if (oai_settings.chat_completion_source === chat_completion_sources.MISTRALAI) {
         generateData.safe_prompt = false;
     }
-    if (oai_settings.chat_completion_source == chat_completion_sources.CUSTOM) {
+    if (oai_settings.chat_completion_source === chat_completion_sources.CUSTOM) {
         generateData.custom_url = oai_settings.custom_url;
-        //generateData.custom_include_body = oai_settings.custom_include_body;
         generateData.custom_include_body = getCustomParameters();
         generateData.custom_exclude_body = oai_settings.custom_exclude_body;
         generateData.custom_include_headers = oai_settings.custom_include_headers;
@@ -55,51 +182,73 @@ async function sendCustomOpenAIRequest(messages, stopStrings, jsonSchema, signal
         generateData.json_schema = jsonSchema;
     }
 
-    // Add proxy settings if configured
-    if (oai_settings.reverse_proxy && [chat_completion_sources.CLAUDE, chat_completion_sources.OPENAI, chat_completion_sources.MISTRALAI, chat_completion_sources.MAKERSUITE, chat_completion_sources.VERTEXAI, chat_completion_sources.DEEPSEEK, chat_completion_sources.XAI].includes(oai_settings.chat_completion_source)) {
+    // Proxy credentials
+    const proxiedSources = [
+        chat_completion_sources.CLAUDE,
+        chat_completion_sources.OPENAI,
+        chat_completion_sources.MISTRALAI,
+        chat_completion_sources.MAKERSUITE,
+        chat_completion_sources.VERTEXAI,
+        chat_completion_sources.DEEPSEEK,
+        chat_completion_sources.XAI,
+    ];
+    if (oai_settings.reverse_proxy && proxiedSources.includes(oai_settings.chat_completion_source)) {
         generateData.reverse_proxy = oai_settings.reverse_proxy;
         generateData.proxy_password = oai_settings.proxy_password;
     }
 
-    console.log('[swarmUI-integration-custom] Custom OpenAI request data:', generateData);
+    console.log('[swarmUI-integration-custom] Request data (stream=%s):', useStreaming, generateData);
 
     const response = await fetch('/api/backends/chat-completions/generate', {
         method: 'POST',
         body: JSON.stringify(generateData),
         headers: getRequestHeaders(),
-        signal: signal,
+        signal,
     });
 
     if (!response.ok) {
-        throw new Error(`Got response status ${response.status}`);
+        const errorText = await response.text().catch(() => response.statusText);
+        throw new Error(`Got response status ${response.status}: ${errorText}`);
     }
 
+    // ---- Streaming path ----
+    if (useStreaming) {
+        const text = await readStreamingResponse(response, onToken, signal);
+        return text;
+    }
+
+    // ---- Non-streaming path ----
     const data = await response.json();
-
     if (data.error) {
-        const message = data.error.message || response.statusText || 'Unknown error';
-        throw new Error(message);
+        throw new Error(data.error.message || response.statusText || 'Unknown error');
     }
-
     return data;
 }
 
+// ============================================================
+// generateRawWithStops
+// ============================================================
+
 /**
- * Generates a message using the provided prompt with support for stopping strings.
- * This is a modified version of generateRaw that includes stopping string functionality.
+ * Generates a message using the provided prompt with support for stop strings
+ * and optional token-level streaming.
+ *
  * @typedef {object} GenerateRawWithStopsParams
- * @prop {string | object[]} [prompt] Prompt to generate a message from. Can be a string or an array of chat-style messages, i.e. [{role: '', content: ''}, ...]
- * @prop {string} [api] API to use. Main API is used if not specified.
- * @prop {boolean} [instructOverride] true to override instruct mode, false to use the default value
- * @prop {boolean} [quietToLoud] true to generate a message in system mode, false to generate a message in character mode
- * @prop {string} [systemPrompt] System prompt to use.
- * @prop {number} [responseLength] Maximum response length. If unset, the global default value is used.
- * @prop {boolean} [trimNames] Whether to allow trimming "{{user}}:" and "{{char}}:" from the response.
- * @prop {string} [prefill] An optional prefill for the prompt.
- * @prop {object} [jsonSchema] JSON schema to use for the structured generation. Usually requires a special instruction.
- * @prop {string[]} [stopStrings] Array of strings that should stop generation when encountered.
- * @param {GenerateRawWithStopsParams} params Parameters for generating a message
- * @returns {Promise<string>} Generated message
+ * @prop {string | object[]} [prompt]          Prompt string or chat-style messages array
+ * @prop {string}            [api]             API to use (defaults to main_api)
+ * @prop {boolean}           [instructOverride] Override instruct mode
+ * @prop {boolean}           [quietToLoud]     Generate in system vs character mode
+ * @prop {string}            [systemPrompt]    System prompt
+ * @prop {number}            [responseLength]  Max response length
+ * @prop {boolean}           [trimNames]       Trim name prefixes from response
+ * @prop {string}            [prefill]         Optional prefill text
+ * @prop {object}            [jsonSchema]      JSON schema for structured output
+ * @prop {string[]}          [stopStrings]     Strings that stop generation
+ * @prop {AbortSignal}       [abortSignal]     External abort signal
+ * @prop {function(string):void} [onToken]     Called with each streamed token (OpenAI/custom only)
+ *
+ * @param {GenerateRawWithStopsParams} params
+ * @returns {Promise<string>} Generated text
  */
 export async function generateRawWithStops({
     prompt = '',
@@ -111,209 +260,205 @@ export async function generateRawWithStops({
     trimNames = true,
     prefill = '',
     jsonSchema = null,
-    stopStrings = []
+    stopStrings = [],
+    abortSignal = null,
+    onToken = null,
 } = {}) {
     if (arguments.length > 0 && typeof arguments[0] !== 'object') {
         console.trace('[swarmUI-integration-custom] generateRawWithStops called with positional arguments. Please use an object instead.');
         [prompt, api, instructOverride, quietToLoud, systemPrompt, responseLength, trimNames, prefill, jsonSchema, stopStrings] = arguments;
     }
 
-    if (!api) {
-        api = main_api;
+    if (!api) api = main_api;
+
+    // We need our own AbortController so we can cancel internally; chain with external signal.
+    const internalController = new AbortController();
+    if (abortSignal) {
+        if (abortSignal.aborted) { internalController.abort(); }
+        else { abortSignal.addEventListener('abort', () => internalController.abort(), { once: true }); }
     }
+    const signal = internalController.signal;
 
-    const abortController = new AbortController();
     const responseLengthCustomized = typeof responseLength === 'number' && responseLength > 0;
-
-    // Simplified response length handling without TempResponseLength dependency
-    let originalResponseLength = null;
     let originalOpenAIMaxTokens = null;
+    let originalAmountGen = null;
 
-    // construct final prompt from the input. Can either be a string or an array of chat-style messages.
     prompt = createRawPrompt(prompt, api, instructOverride, quietToLoud, systemPrompt, prefill);
 
     try {
-        // Handle custom response length without TempResponseLength class
         if (responseLengthCustomized) {
             if (api === 'openai') {
                 originalOpenAIMaxTokens = oai_settings.openai_max_tokens;
                 oai_settings.openai_max_tokens = responseLength;
             } else {
-                originalResponseLength = amount_gen;
+                originalAmountGen = amount_gen;
                 amount_gen = responseLength;
             }
         }
 
-        /** @type {object|any[]} */
-        let generateData = {};
+        // ---- Non-OpenAI paths (no streaming support yet) ----
+        if (api !== 'openai') {
+            let generateData = {};
 
-        switch (api) {
-            case 'kobold':
-            case 'koboldhorde':
-                if (kai_settings.preset_settings === 'gui') {
-                    generateData = {
-                        prompt: prompt,
-                        gui_settings: true,
-                        max_length: amount_gen,
-                        max_context_length: max_context,
-                        api_server: kai_settings.api_server
-                    };
-                    // Add stop strings for Kobold
-                    if (stopStrings.length > 0) {
-                        generateData.stop_sequence = stopStrings;
-                    }
-                } else {
-                    const isHorde = api === 'koboldhorde';
-                    const koboldSettings = koboldai_settings[koboldai_setting_names[kai_settings.preset_settings]];
-                    generateData = getKoboldGenerationData(prompt.toString(), koboldSettings, amount_gen, max_context, isHorde, 'quiet');
-                    // Add stop strings for Kobold
-                    if (stopStrings.length > 0) {
-                        generateData.stop_sequence = stopStrings;
-                    }
-                }
-                break;
-            case 'novel': {
-                const novelSettings = novelai_settings[novelai_setting_names[nai_settings.preset_settings_novel]];
-                generateData = getNovelGenerationData(prompt, novelSettings, amount_gen, false, false, null, 'quiet');
-                // Add stop strings for Novel AI (they use 'stop' parameter)
-                if (stopStrings.length > 0) {
-                    generateData.parameters = generateData.parameters || {};
-                    generateData.parameters.stop = stopStrings;
-                }
-                break;
-            }
-            case 'textgenerationwebui':
-                generateData = await getTextGenGenerationData(prompt, amount_gen, false, false, null, 'quiet');
-                // Add stop strings for TextGenWebUI
-                if (stopStrings.length > 0) {
-                    generateData.stopping_strings = stopStrings;
-                }
-                break;
-            case 'openai': {
-                generateData = prompt;  // generateData is just the chat message object
-                // Stop strings for OpenAI will be handled in sendOpenAIRequest
-                break;
-            }
-        }
-
-        let data = {};
-
-        if (api === 'koboldhorde') {
-            data = await generateHorde(prompt.toString(), generateData, abortController.signal, false);
-        } else if (api === 'openai') {
-            // For OpenAI/Mistral, we'll make a direct request to handle stop strings properly
-            if (stopStrings.length > 0) {
-                console.log('[swarmUI-integration-custom] Using custom OpenAI request with stop strings:', stopStrings);
-                data = await sendCustomOpenAIRequest(generateData, stopStrings, jsonSchema, abortController.signal);
-            } else {
-                const requestOptions = { jsonSchema };
-                data = await sendOpenAIRequest('quiet', generateData, abortController.signal, requestOptions);
-            }
-            console.log('[swarmUI-integration-custom] OpenAI/Mistral response:', JSON.stringify(data, null, 2));
-        } else {
-            const generateUrl = getGenerateUrl(api);
-            const response = await fetch(generateUrl, {
-                method: 'POST',
-                headers: getRequestHeaders(),
-                cache: 'no-cache',
-                body: JSON.stringify(generateData),
-                signal: abortController.signal,
-            });
-
-            if (!response.ok) {
-                throw await response.json();
-            }
-
-            data = await response.json();
-        }
-
-        // Check if generation stopped due to length limit and warn
-        if (api === 'openai' && data && data.choices && data.choices[0] && data.choices[0].finish_reason === 'length') {
-            console.warn('[swarmUI-integration-custom] Generation stopped due to length limit. Consider using shorter responseLength or more specific stop strings.');
-        }
-
-        // should only happen for text completions
-        // other frontend paths do not return data if calling the backend fails,
-        // they throw things instead
-        if (data.error) {
-            throw new Error(data.response);
-        }
-
-        if (jsonSchema) {
-            return extractJsonFromData(data, { mainApi: api });
-        }
-
-        // Handle Mistral's specific response format
-        let extractedMessage;
-        try {
-            extractedMessage = extractMessageFromData(data);
-        } catch (error) {
-            console.warn('[swarmUI-integration-custom] Standard message extraction failed, trying Mistral format:', error);
-            // Handle Mistral's response format specifically
-            if (data && data.choices && data.choices[0] && data.choices[0].message) {
-                const messageContent = data.choices[0].message.content;
-                if (Array.isArray(messageContent) && messageContent.length > 0) {
-                    // Mistral returns content as array of objects
-                    if (typeof messageContent[0] === 'object' && messageContent[0].text) {
-                        extractedMessage = messageContent[0].text;
-                    } else if (typeof messageContent[0] === 'string') {
-                        extractedMessage = messageContent[0];
+            switch (api) {
+                case 'kobold':
+                case 'koboldhorde':
+                    if (kai_settings.preset_settings === 'gui') {
+                        generateData = {
+                            prompt,
+                            gui_settings: true,
+                            max_length: amount_gen,
+                            max_context_length: max_context,
+                            api_server: kai_settings.api_server,
+                        };
+                        if (stopStrings.length > 0) generateData.stop_sequence = stopStrings;
                     } else {
-                        extractedMessage = JSON.stringify(messageContent[0]);
+                        const isHorde = api === 'koboldhorde';
+                        const koboldSettings = koboldai_settings[koboldai_setting_names[kai_settings.preset_settings]];
+                        generateData = getKoboldGenerationData(prompt.toString(), koboldSettings, amount_gen, max_context, isHorde, 'quiet');
+                        if (stopStrings.length > 0) generateData.stop_sequence = stopStrings;
                     }
-                } else if (typeof messageContent === 'string') {
-                    extractedMessage = messageContent;
-                }
-            }
-        }
+                    break;
 
-        // format result, exclude user prompt bias
-        let message = cleanUpMessage({
-            getMessage: extractedMessage,
-            isImpersonate: false,
-            isContinue: false,
-            displayIncompleteSentences: true,
-            includeUserPromptBias: false,
-            trimNames: trimNames,
-            trimWrongNames: trimNames,
-        });
-
-        if (!message) {
-            console.error('[swarmUI-integration-custom] Failed to extract message. Raw data:', JSON.stringify(data, null, 2));
-            throw new Error('No message generated');
-        }
-
-        // Additional client-side stop string processing as fallback
-        if (stopStrings.length > 0) {
-            for (const stopString of stopStrings) {
-                const stopIndex = message.indexOf(stopString);
-                if (stopIndex !== -1) {
-                    message = message.substring(0, stopIndex);
+                case 'novel': {
+                    const novelSettings = novelai_settings[novelai_setting_names[nai_settings.preset_settings_novel]];
+                    generateData = getNovelGenerationData(prompt, novelSettings, amount_gen, false, false, null, 'quiet');
+                    if (stopStrings.length > 0) {
+                        generateData.parameters = generateData.parameters || {};
+                        generateData.parameters.stop = stopStrings;
+                    }
                     break;
                 }
+
+                case 'textgenerationwebui':
+                    generateData = await getTextGenGenerationData(prompt, amount_gen, false, false, null, 'quiet');
+                    if (stopStrings.length > 0) generateData.stopping_strings = stopStrings;
+                    break;
             }
+
+            let data = {};
+            if (api === 'koboldhorde') {
+                data = await generateHorde(prompt.toString(), generateData, signal, false);
+            } else {
+                const generateUrl = getGenerateUrl(api);
+                const response = await fetch(generateUrl, {
+                    method: 'POST',
+                    headers: getRequestHeaders(),
+                    cache: 'no-cache',
+                    body: JSON.stringify(generateData),
+                    signal,
+                });
+                if (!response.ok) throw await response.json();
+                data = await response.json();
+            }
+
+            if (data.error) throw new Error(data.response);
+
+            return _extractAndClean(data, api, jsonSchema, stopStrings, trimNames);
         }
 
-        return message;
+        // ---- OpenAI path (streaming or non-streaming) ----
+        const hasStopStrings = stopStrings.length > 0;
+        const wantsStreaming = typeof onToken === 'function';
+
+        if (hasStopStrings || wantsStreaming) {
+            // Use our custom request that supports both streaming and stop strings
+            const result = await sendCustomOpenAIRequest(
+                prompt,         // already shaped as messages array by createRawPrompt
+                stopStrings,
+                jsonSchema,
+                signal,
+                wantsStreaming ? onToken : null,
+            );
+
+            if (wantsStreaming) {
+                // result is already the full accumulated string from the stream
+                let message = typeof result === 'string' ? result : '';
+                message = _applyStopStrings(message, stopStrings);
+                return _cleanMessage(message, trimNames);
+            }
+
+            // Non-streaming with stop strings: result is a full data object
+            return _extractAndClean(result, api, jsonSchema, stopStrings, trimNames);
+        }
+
+        // Plain OpenAI, no stop strings, no streaming: use ST's built-in sendOpenAIRequest
+        const data = await sendOpenAIRequest('quiet', prompt, signal, { jsonSchema });
+        return _extractAndClean(data, api, jsonSchema, stopStrings, trimNames);
+
     } finally {
-        // Restore original response length settings
         if (responseLengthCustomized) {
             if (api === 'openai' && originalOpenAIMaxTokens !== null) {
                 oai_settings.openai_max_tokens = originalOpenAIMaxTokens;
-            } else if (originalResponseLength !== null) {
-                amount_gen = originalResponseLength;
+            } else if (originalAmountGen !== null) {
+                amount_gen = originalAmountGen;
             }
         }
     }
 }
 
-// Alternative function with a more specific name for image prompt generation
-export async function generateImagePromptWithStops(params = {}) {
-    // Default stop strings commonly used for danbooru tag generation
-    const defaultStops = ['\n\n', '###', 'USER:', 'ASSISTANT:', '<|im_end|>', '<|endoftext|>'];
+// ============================================================
+// Private helpers
+// ============================================================
 
+function _applyStopStrings(text, stopStrings) {
+    for (const s of stopStrings) {
+        const idx = text.indexOf(s);
+        if (idx !== -1) return text.substring(0, idx);
+    }
+    return text;
+}
+
+function _cleanMessage(raw, trimNames) {
+    return cleanUpMessage({
+        getMessage: raw,
+        isImpersonate: false,
+        isContinue: false,
+        displayIncompleteSentences: true,
+        includeUserPromptBias: false,
+        trimNames,
+        trimWrongNames: trimNames,
+    });
+}
+
+function _extractAndClean(data, api, jsonSchema, stopStrings, trimNames) {
+    if (jsonSchema) {
+        return extractJsonFromData(data, { mainApi: api });
+    }
+
+    let extracted;
+    try {
+        extracted = extractMessageFromData(data);
+    } catch {
+        // Mistral / unusual format fallback
+        if (data?.choices?.[0]?.message?.content != null) {
+            const c = data.choices[0].message.content;
+            if (Array.isArray(c)) {
+                extracted = c[0]?.text ?? c[0] ?? '';
+                if (typeof extracted !== 'string') extracted = JSON.stringify(extracted);
+            } else {
+                extracted = String(c);
+            }
+        }
+    }
+
+    if (!extracted) {
+        console.error('[swarmUI-integration-custom] Failed to extract message from:', JSON.stringify(data, null, 2));
+        throw new Error('No message generated');
+    }
+
+    extracted = _applyStopStrings(extracted, stopStrings);
+    return _cleanMessage(extracted, trimNames) || extracted;
+}
+
+// ============================================================
+// Convenience export
+// ============================================================
+
+export async function generateImagePromptWithStops(params = {}) {
+    const defaultStops = ['\n\n', '###', 'USER:', 'ASSISTANT:', '<|im_end|>', '<|endoftext|>'];
     return generateRawWithStops({
         ...params,
-        stopStrings: params.stopStrings || defaultStops
+        stopStrings: params.stopStrings || defaultStops,
     });
 }
