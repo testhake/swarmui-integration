@@ -1,7 +1,7 @@
 ﻿import { eventSource, event_types, saveSettingsDebounced, getRequestHeaders, substituteParams } from '../../../../script.js';
 import { getContext, extension_settings } from '../../../extensions.js';
 import { oai_settings } from '../../../openai.js';
-import { generateQuietPrompt } from '../../../../script.js';
+import { generateQuietPrompt, generateRaw } from '../../../../script.js';
 import { debounce_timeout } from '../../../constants.js';
 import { saveBase64AsFile, getBase64Async, getCharaFilename } from '../../../utils.js';
 import { humanizedDateTime } from '../../../RossAscends-mods.js';
@@ -189,73 +189,13 @@ function onInput(event) {
 // Session Management
 // ============================================================
 
-/**
- * Fetch a SwarmUI API endpoint.
- *
- * When the SwarmUI URL is remote (not localhost / 127.x / LAN) the browser
- * cannot make direct cross-origin POST requests without CORS headers that
- * SwarmUI doesn't supply.  We route those calls through SillyTavern's own
- * server-side fetch proxy (/api/util/fetch) so the request originates from
- * the Node.js process and is never subject to browser CORS restrictions.
- *
- * Local URLs (localhost, 127.x, 192.168.x, 10.x, 172.16-31.x) are fetched
- * directly — the proxy adds unnecessary round-trip overhead there.
- *
- * @param {string} url       Full SwarmUI URL to call
- * @param {object} options   Fetch options (method, headers, body, …)
- * @returns {Promise<Response>} A synthetic Response object
- */
-async function swarmFetch(url, options = {}) {
-    const isLocal = /^https?:\/\/(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(url);
-
-    if (isLocal) {
-        // Direct fetch is fine — no CORS involved
-        return fetch(url, { ...options, credentials: 'omit' });
-    }
-
-    // Remote URL — proxy through ST's server-side fetcher so the browser
-    // never has to deal with CORS.  ST exposes this at /api/util/fetch.
-    const proxyResponse = await fetch('/api/util/fetch', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            ...getRequestHeaders(),
-        },
-        body: JSON.stringify({
-            url,
-            method: options.method || 'GET',
-            headers: options.headers || {},
-            body: options.body || null,
-        }),
-    });
-
-    if (!proxyResponse.ok) {
-        // Surface ST-level errors (auth, 500s) as if they came from SwarmUI
-        throw new Error(`ST proxy error ${proxyResponse.status} for ${url}`);
-    }
-
-    // ST's /api/util/fetch returns { ok, status, statusText, body (string) }
-    const envelope = await proxyResponse.json();
-
-    // Reconstruct a minimal Response-like object so callers can use .ok /
-    // .status / .json() / .text() exactly as they would with a real Response.
-    const bodyString = typeof envelope.body === 'string'
-        ? envelope.body
-        : JSON.stringify(envelope.body ?? '');
-
-    return new Response(bodyString, {
-        status: envelope.status ?? (envelope.ok ? 200 : 500),
-        statusText: envelope.statusText ?? '',
-        headers: { 'Content-Type': 'application/json' },
-    });
-}
-
 async function createNewSession() {
     const url = `${settings.url}/API/GetNewSession`;
-    const response = await swarmFetch(url, {
+    const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'skip_zrok_interstitial': '1' },
+        headers: { 'Content-Type': 'application/json', 'skip_zrok_interstitial': '1', ...getRequestHeaders() },
         body: JSON.stringify({}),
+        credentials: 'omit',
     });
     if (!response.ok) throw new Error('Failed to get session ID');
     const data = await response.json();
@@ -292,10 +232,11 @@ async function validateAndGetSessionId() {
 
 async function getSavedT2IParams(sessionId) {
     const url = `${settings.url}/API/GetSavedT2IParams?skip_zrok_interstitial=1`;
-    const response = await swarmFetch(url, {
+    const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1', ...getRequestHeaders() },
         body: JSON.stringify({ session_id: sessionId }),
+        credentials: 'omit',
     });
     if (!response.ok) throw new Error('Failed to get saved T2I params');
     const data = await response.json();
@@ -407,7 +348,7 @@ function parsePromptTemplate(template, messages) {
 }
 
 // ============================================================
-// Prompt Generation (with streaming via SillyTavern events)
+// Prompt Generation (with streaming support)
 // ============================================================
 
 /**
@@ -426,35 +367,25 @@ function cleanImagePrompt(raw) {
 
 /**
  * Generate an image prompt from chat context.
- *
- * @param {number|null} upToMessageIndex  - Only use messages up to (and including) this index
- * @param {AbortController|null} abortController - Optional abort controller
- * @param {function(string):void|null} onToken - Called with each streamed text chunk (raw generation only)
- * @returns {Promise<string>} Cleaned image prompt
+ * The `onToken` callback fires with each new streamed chunk so we can show live output.
  */
 async function generateImagePromptFromChat(upToMessageIndex = null, abortController = null, onToken = null) {
     const context = getContext();
     const chat = context.chat;
 
-    if (!Array.isArray(chat) || chat.length === 0) {
-        throw new Error('No chat messages to base prompt on.');
-    }
+    if (!Array.isArray(chat) || chat.length === 0) throw new Error('No chat messages to base prompt on.');
 
     let imagePrompt;
 
     if (settings.use_raw) {
-        // --- Raw generation path (supports streaming via onToken) ---
         const messageCount = settings.message_count ?? 5;
         const visibleMessages = upToMessageIndex !== null
             ? getVisibleMessagesUpTo(chat, messageCount, upToMessageIndex + 1)
             : getVisibleMessagesUpTo(chat, messageCount);
 
-        if (visibleMessages.length === 0) {
-            throw new Error('No visible messages found to base prompt on.');
-        }
+        if (visibleMessages.length === 0) throw new Error('No visible messages found.');
 
-        const instructionTemplate = settings.llm_prompt
-            || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}';
+        const instructionTemplate = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}';
         const parsedMessages = parsePromptTemplate(instructionTemplate, visibleMessages);
 
         let systemPrompt = '';
@@ -485,9 +416,6 @@ async function generateImagePromptFromChat(upToMessageIndex = null, abortControl
                     onToken,
                 });
             } else {
-                // generateRaw is ST's built-in and does NOT support onToken streaming.
-                // We fall back to generateRawWithStops (with no stop strings) so we get
-                // the same streaming capability through our custom path.
                 imagePrompt = await generateRawWithStops({
                     systemPrompt,
                     prompt,
@@ -498,13 +426,11 @@ async function generateImagePromptFromChat(upToMessageIndex = null, abortControl
                 });
             }
         } catch (error) {
-            if (error.name === 'AbortError' || error.message === 'Aborted') {
-                throw new Error('Generation cancelled by user');
-            }
+            if (error.name === 'AbortError') throw new Error('Generation cancelled by user');
             throw error;
         }
     } else {
-        // --- Quiet prompt path (no streaming available) ---
+        // Non-raw path: use generateQuietPrompt (no streaming available here)
         let lastVisibleMessage = '';
         const searchUpTo = upToMessageIndex !== null ? upToMessageIndex + 1 : chat.length;
         for (let i = searchUpTo - 1; i >= 0; i--) {
@@ -512,22 +438,19 @@ async function generateImagePromptFromChat(upToMessageIndex = null, abortControl
             lastVisibleMessage = chat[i].mes || '';
             break;
         }
-        if (!lastVisibleMessage) throw new Error('No visible messages found to base prompt on.');
+        if (!lastVisibleMessage) throw new Error('No visible messages found.');
 
         const messageCount = settings.message_count ?? 5;
         const visibleMessages = upToMessageIndex !== null
             ? getVisibleMessagesUpTo(chat, messageCount, upToMessageIndex + 1)
             : getVisibleMessagesUpTo(chat, messageCount);
 
-        let llmPrompt = settings.llm_prompt
-            || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}';
-
+        let llmPrompt = settings.llm_prompt || 'Generate a detailed, descriptive prompt for an image generation AI based on this scene: {all_messages}';
         if (/{(all_messages|previous_messages|previous_messages2|message_last|message_beforelast)}/.test(llmPrompt)) {
             llmPrompt = replaceMessageTags(llmPrompt, visibleMessages);
         } else {
             llmPrompt = substituteParams(llmPrompt).replace('{description}', lastVisibleMessage);
         }
-
         imagePrompt = await generateQuietPrompt(llmPrompt, false, false, abortController?.signal);
     }
 
@@ -539,52 +462,11 @@ async function generateImagePromptFromChat(upToMessageIndex = null, abortControl
 // ============================================================
 
 async function downloadImageAsBase64(imageUrl) {
-    const isLocal = /^https?:\/\/(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(imageUrl);
-
-    if (isLocal) {
-        // Direct fetch, read as blob normally
-        const response = await fetch(imageUrl, { method: 'GET', headers: { 'skip_zrok_interstitial': '1' }, credentials: 'omit' });
-        if (!response.ok) throw new Error(`Failed to download image: ${response.status}`);
-        const blob = await response.blob();
-        const base64 = await getBase64Async(blob);
-        return base64.replace(/^data:image\/[a-z]+;base64,/, '');
-    }
-
-    // Remote: go through ST proxy. The proxy returns the body as a string.
-    // For images SwarmUI typically returns a relative path, which we already
-    // prefixed with the base URL before calling here, so we ask the proxy to
-    // fetch the full image URL. The body will be a base64 data-URI string
-    // if SwarmUI returns the image inline, or raw image bytes which the proxy
-    // will encode. We handle both.
-    const proxyResponse = await fetch('/api/util/fetch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getRequestHeaders() },
-        body: JSON.stringify({
-            url: imageUrl,
-            method: 'GET',
-            headers: { 'skip_zrok_interstitial': '1' },
-        }),
-    });
-
-    if (!proxyResponse.ok) throw new Error(`ST proxy error ${proxyResponse.status} fetching image`);
-
-    const envelope = await proxyResponse.json();
-    if (!envelope.ok) throw new Error(`Failed to download image via proxy: ${envelope.status}`);
-
-    const bodyStr = typeof envelope.body === 'string' ? envelope.body : '';
-
-    // If the body already is a data URI
-    if (bodyStr.startsWith('data:image/')) {
-        return bodyStr.replace(/^data:image\/[a-z]+;base64,/, '');
-    }
-
-    // If it's raw base64
-    if (/^[A-Za-z0-9+/]+=*$/.test(bodyStr.trim())) {
-        return bodyStr.trim();
-    }
-
-    // Fallback: treat as binary string → base64
-    return btoa(bodyStr);
+    const response = await fetch(imageUrl, { method: 'GET', headers: { 'skip_zrok_interstitial': '1' } });
+    if (!response.ok) throw new Error(`Failed to download image: ${response.status}`);
+    const blob = await response.blob();
+    const base64 = await getBase64Async(blob);
+    return base64.replace(/^data:image\/[a-z]+;base64,/, '');
 }
 
 async function generateAndSaveImage(imagePrompt, savedParams = null, shouldSwapDimensions = false) {
@@ -603,10 +485,11 @@ async function generateAndSaveImage(imagePrompt, savedParams = null, shouldSwapD
     }
     rawInput.prompt = finalPrompt;
 
-    const response = await swarmFetch(`${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`, {
+    const response = await fetch(`${settings.url}/API/GenerateText2Image?skip_zrok_interstitial=1`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'skip_zrok_interstitial': '1', ...getRequestHeaders() },
         body: JSON.stringify({ session_id: sessionId, images: rawInput.images ?? 1, ...rawInput }),
+        credentials: 'omit',
     });
 
     if (!response.ok) {
