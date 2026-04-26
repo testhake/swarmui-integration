@@ -30,28 +30,29 @@ function extractDeltaFromSSELine(line) {
     if (!line.startsWith('data:')) return null;
     const raw = line.slice(5).trim();
     if (!raw || raw === '[DONE]') return null;
+
     let obj;
     try { obj = JSON.parse(raw); } catch { return null; }
 
     if (obj.choices?.[0]?.delta != null) {
         const delta = obj.choices[0].delta;
-        if (delta.reasoning_content != null) return { text: delta.reasoning_content, thinking: true };
-        if (delta.content != null) return { text: delta.content, thinking: false };
+        // DeepSeek-R1 style: reasoning comes on its own field
+        // Wrap it in <think> tags so the caller can detect it
+        if (delta.reasoning_content != null) return delta.reasoning_content ? `<think_token>${delta.reasoning_content}</think_token>` : null;
+        if (delta.content != null) return delta.content || null;
         return null;
     }
     if (obj.type === 'content_block_delta') {
         if (obj.delta?.type === 'thinking_delta' && obj.delta?.thinking != null)
-            return { text: obj.delta.thinking, thinking: true };
-        if (obj.delta?.text != null)
-            return { text: obj.delta.text, thinking: false };
+            return obj.delta.thinking ? `<think_token>${obj.delta.thinking}</think_token>` : null;
+        if (obj.delta?.text != null) return obj.delta.text || null;
         return null;
     }
     if (obj.event_type === 'text-generation' && obj.text != null)
-        return { text: obj.text, thinking: false };
+        return obj.text || null;
     if (obj.candidates?.[0]?.content?.parts?.[0]?.text != null)
-        return { text: obj.candidates[0].content.parts[0].text, thinking: false };
-    if (obj.token != null)
-        return { text: obj.token, thinking: false };
+        return obj.candidates[0].content.parts[0].text || null;
+    if (obj.token != null) return obj.token || null;
     return null;
 }
 
@@ -113,12 +114,12 @@ async function readStreamingResponse(response, onToken, signal) {
     } finally {
         try { reader.cancel(); } catch { }
     }
+    // Collapse all <think_token>...</think_token> spans into a single <think> block
+    const thinkingContent = [...accumulated.matchAll(/<think_token>([\s\S]*?)<\/think_token>/g)]
+        .map(m => m[1]).join('');
+    const textContent = accumulated.replace(/<think_token>[\s\S]*?<\/think_token>/g, '').trim();
 
-    // Combine: wrap thinking in <think> tags if present, then the real text
-    const full = accumulatedThinking
-        ? `<think>${accumulatedThinking}</think>${accumulatedText}`
-        : accumulatedText;
-    return full;
+    return thinkingContent ? `<think>${thinkingContent}</think>${textContent}` : textContent;
 }
 
 // ============================================================

@@ -357,6 +357,7 @@ function parsePromptTemplate(template, messages) {
  */
 function cleanImagePrompt(raw) {
     return raw
+        .replace(/<think>[\s\S]*?<\/think>/g, '')  // ← add this as the first replace
         .replace(/\*/g, '')
         .replace(/"/g, '')
         .replace(/`/g, '')
@@ -406,30 +407,31 @@ async function generateImagePromptFromChat(upToMessageIndex = null, abortControl
             prompt = parsedMessages.map(msg => ({ role: msg.role, content: msg.content }));
         }
 
-        // Wrap onToken to accept { text, thinking } objects from readStreamingResponse
-        const wrappedOnToken = onToken ? (chunk) => {
-            if (typeof chunk === 'object' && chunk !== null && 'text' in chunk) {
-                onToken(chunk); // already the right shape, pass through
-            } else if (typeof chunk === 'string') {
-                onToken({ text: chunk, thinking: false }); // legacy plain string fallback
-            }
-        } : null;
-
         try {
-            imagePrompt = await generateRawWithStops({
-                systemPrompt,
-                prompt,
-                prefill: '',
-                stopStrings: [],
-                abortSignal: abortController?.signal,
-                onToken: wrappedOnToken,
-            });
+            if (settings.use_custom_generate_raw) {
+                imagePrompt = await generateRawWithStops({
+                    systemPrompt,
+                    prompt,
+                    prefill: '',
+                    stopStrings: ['<|im_end|>', '</s>', '[/INST]', '<|endoftext|>', '<END>'],
+                    abortSignal: abortController?.signal,
+                    onToken,
+                });
+            } else {
+                imagePrompt = await generateRawWithStops({
+                    systemPrompt,
+                    prompt,
+                    prefill: '',
+                    abortSignal: abortController?.signal,
+                    onToken,
+                });
+            }
         } catch (error) {
             if (error.name === 'AbortError') throw new Error('Generation cancelled by user');
             throw error;
         }
     } else {
-        // Non-raw path: generateQuietPrompt has no streaming support
+        // Non-raw path: use generateQuietPrompt (no streaming available here)
         let lastVisibleMessage = '';
         const searchUpTo = upToMessageIndex !== null ? upToMessageIndex + 1 : chat.length;
         for (let i = searchUpTo - 1; i >= 0; i--) {
@@ -698,19 +700,22 @@ async function generatePromptsParallel(indices, type, swapDimensions = false) {
  * Generate prompt for a single gen object (streams tokens into the panel).
  */
 async function generatePromptForGen(gen, messageIndex) {
-    const onToken = ({ text, thinking }) => {
+    const onToken = (raw) => {
         if (gen.status === 'cancelled') return;
-        if (thinking) {
-            gen.streamedThinking = (gen.streamedThinking || '') + text;
+
+        // Check if this token is a thinking token
+        const thinkMatch = raw.match(/^<think_token>([\s\S]*)<\/think_token>$/);
+        if (thinkMatch) {
+            gen.streamedThinking = (gen.streamedThinking || '') + thinkMatch[1];
         } else {
-            gen.streamedText += text;
+            gen.streamedText += raw;
         }
         renderGenerationPanel();
     };
 
     try {
         const raw = await generateImagePromptFromChat(messageIndex, gen.abortController, onToken);
-        // Strip <think>...</think> from the final prompt (cleanImagePrompt runs after this)
+        // Strip <think>...</think> from the final prompt
         const prompt = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
         return prompt;
     } catch (error) {
