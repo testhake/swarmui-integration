@@ -13,7 +13,7 @@ import { generateHorde } from '../../../../horde.js';
 import { getTextGenGenerationData } from '../../../../textgen-settings.js';
 
 // ============================================================
-// SSE Streaming helpers
+// SSE Streaming helpers 
 // ============================================================
 
 /**
