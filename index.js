@@ -18,7 +18,7 @@ const imageGenerationQueue = [];
 let isProcessingQueue = false;
 let queueProcessorRunning = false;
 
-let activeGenerationControllers = new Map(); // Track AbortControllers for each queue item
+let activeGenerationControllers = new Map(); // Track AbortControllers for each queued item
 
 let isShiftPressed = false;
 
